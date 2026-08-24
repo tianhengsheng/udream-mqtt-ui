@@ -1,0 +1,26 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-server/
+*.tsbuildinfo
+
+# Vite 缓存
+.vite/
+
+# IDE
+.idea/
+.vscode/
+
+# 系统文件
+.DS_Store
+**/.DS_Store
+*.log
+.env.local
+.env.*.local
+
+# CA 私钥（不可提交；放项目根目录后 sim-server 才能自动签发证书）
+ca.key
+
+# 注意：certs/ 下的测试设备证书是要提交的（联调用固定测试设备，不含 CA 私钥）

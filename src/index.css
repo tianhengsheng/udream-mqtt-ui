@@ -1,0 +1,490 @@
+/* ============================================================
+ * 全局紧凑（与 ConfigProvider 配合，把 padding/行高/字号统一压小）
+ * ============================================================ */
+body {
+  font-size: 12px;
+}
+/* Drawer 内部 padding 收紧 */
+.ant-drawer-body {
+  padding: 12px !important;
+}
+.ant-drawer-header {
+  padding: 10px 16px !important;
+}
+/* Card 抬头/内容 padding 微调 */
+.ant-card-small > .ant-card-head {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.ant-card-small > .ant-card-body {
+  padding: 8px 10px;
+}
+/* Form 项再压一点 */
+.ant-form-vertical .ant-form-item-label {
+  padding-bottom: 2px !important;
+}
+.ant-form-item {
+  margin-bottom: 8px !important;
+}
+/* Collapse */
+.ant-collapse-header {
+  padding: 6px 10px !important;
+  font-size: 12px;
+}
+.ant-collapse-content-box {
+  padding: 8px 10px !important;
+}
+/* Descriptions 行内紧凑 */
+.ant-descriptions-item-container .ant-descriptions-item-label,
+.ant-descriptions-item-container .ant-descriptions-item-content {
+  font-size: 12px;
+}
+/* Statistic 数字字号统一不要太大 */
+.ant-statistic-content {
+  font-size: 20px !important;
+}
+.ant-statistic-title {
+  font-size: 12px !important;
+}
+/* Menu 项压低 */
+.ant-menu-inline .ant-menu-item {
+  height: 36px !important;
+  line-height: 36px !important;
+  font-size: 13px;
+}
+
+/* ============================================================
+ * App 端模拟：手机外框
+ * ============================================================ */
+.phone-frame {
+  width: 390px;
+  height: 800px;
+  margin: 16px auto;
+  background: #f4f5f7;
+  border: 8px solid #1c1c1e;
+  border-radius: 36px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.phone-statusbar {
+  height: 28px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1c1c1e;
+}
+.phone-statusbar .notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 18px;
+  background: #1c1c1e;
+  border-radius: 0 0 12px 12px;
+}
+.phone-appbar {
+  height: 44px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid #f0f0f0;
+}
+.phone-appbar .back {
+  position: absolute;
+  left: 14px;
+  font-size: 16px;
+  color: #333;
+}
+.phone-appbar .appbar-right {
+  position: absolute;
+  right: 14px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #2f6bff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.appbar-right .dot {
+  background: #ff3b30;
+  color: #fff;
+  font-size: 10px;
+  border-radius: 8px;
+  min-width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+/* App 顶部：店名 + 搜索 + 扫码 一行 */
+.m-tophead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+.m-tophead .store {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.m-tophead .searchbox {
+  flex: 1;
+  border: none;
+  background: #f2f3f5;
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.m-tophead .scan {
+  font-size: 12px;
+  color: #333;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.phone-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.phone-body > .phone-spin,
+.phone-body > .phone-spin > .ant-spin-container {
+  height: 100%;
+}
+/* 移动端卡片/列表 */
+.m-section-title {
+  padding: 8px 14px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c1c1e;
+  position: sticky;
+  top: 0;
+  background: #f4f5f7;
+  z-index: 1;
+}
+.m-type-title {
+  padding: 6px 14px 2px;
+  font-size: 12px;
+  color: #8a8a8e;
+}
+.m-card {
+  display: flex;
+  gap: 10px;
+  background: #fff;
+  margin: 6px 10px;
+  padding: 10px;
+  border-radius: 12px;
+}
+.m-card .pic {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: #f0f0f0;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c0c0c0;
+  font-size: 11px;
+}
+/* 数量步进器 */
+.m-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e5e5e5;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.m-stepper button {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: #fff;
+  font-size: 15px;
+  color: #333;
+  cursor: pointer;
+}
+.m-stepper button:disabled {
+  color: #ccc;
+  cursor: not-allowed;
+}
+.m-stepper .val {
+  min-width: 30px;
+  text-align: center;
+  font-size: 13px;
+}
+/* 两级菜单商品列表布局（左侧分类 + 右侧内容，商城/列表页通用） */
+.m-search {
+  padding: 8px 10px;
+  background: #fff;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.m-search input {
+  flex: 1;
+  border: none;
+  background: #f2f3f5;
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.m-l1tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #fff;
+  overflow-x: auto;
+  border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+.m-l1tab {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: #444;
+  border-radius: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.m-l1tab.active {
+  background: #e6f0ff;
+  color: #2f6bff;
+  font-weight: 600;
+}
+.m-twocol {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.m-submenu {
+  width: 80px;
+  background: #f4f5f7;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.m-subitem {
+  padding: 12px 6px;
+  font-size: 12px;
+  text-align: center;
+  color: #666;
+  cursor: pointer;
+  position: relative;
+}
+.m-subitem.active {
+  background: #fff;
+  color: #1c1c1e;
+  font-weight: 600;
+}
+.m-subitem.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  background: #2f6bff;
+  border-radius: 0 2px 2px 0;
+}
+.m-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+/* 通用商品/条目卡片 */
+.m-acard {
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  position: relative;
+}
+.m-acard .badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+.m-acard .row1 {
+  display: flex;
+  gap: 8px;
+}
+.m-acard .pic {
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
+  background: #f0f0f0;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c0c0c0;
+  font-size: 10px;
+}
+.m-acard .name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.m-acard .spec {
+  font-size: 11px;
+  color: #8a8a8e;
+  margin-top: 3px;
+}
+.m-acard .hint {
+  font-size: 11px;
+  color: #ff5a5f;
+  margin-top: 5px;
+}
+/* 底部购物车/提交条 */
+.m-cartbar {
+  height: 54px;
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.m-cartbar .cart {
+  position: relative;
+  font-size: 22px;
+}
+.m-cartbar .cart .cnt {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 10px;
+  border-radius: 8px;
+  min-width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+.m-cartbar .submit {
+  margin-left: auto;
+  background: #bcd3ff;
+  color: #fff;
+  border: none;
+  border-radius: 18px;
+  height: 36px;
+  padding: 0 24px;
+  font-size: 15px;
+  cursor: not-allowed;
+}
+.m-cartbar .submit.on {
+  background: #2f6bff;
+  cursor: pointer;
+}
+
+/* ─────────────────────────────────────────────────────────
+   设备模拟器：SN 徽章 + 运行态动效（深色版）
+   SN = dye_device_cream.device_code，是查余量的关键标识，
+   从灰色小字里抽出来做徽章；设备在跑（下料/校准/换料/deviceStatus=1）时加动效。
+   注意：模拟器页整体是深色（见 src/simulator/theme.ts），这里的色值必须跟那套色板对齐；
+   外层脚手架仍是浅色，但 .sim-* 只用在模拟器页内，不会污染其他页面。
+   ───────────────────────────────────────────────────────── */
+.sim-sn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  border: 1px solid #3d6fb5;
+  background: rgba(83, 155, 245, 0.16);
+  color: #79c0ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sim-sn:hover {
+  border-color: #539bf5;
+  background: rgba(83, 155, 245, 0.28);
+}
+.sim-sn .sim-sn__label {
+  font-family: inherit;
+  font-weight: 400;
+  color: #539bf5;
+  opacity: 0.85;
+}
+
+/* 运行中：流光扫过 + 脉冲光环（深色下流光用蓝色本身的明暗差，不能再用浅蓝亮色） */
+.sim-sn--running {
+  border-color: #539bf5;
+  background: linear-gradient(
+    100deg,
+    rgba(83, 155, 245, 0.16) 30%,
+    rgba(83, 155, 245, 0.45) 50%,
+    rgba(83, 155, 245, 0.16) 70%
+  );
+  background-size: 220% 100%;
+  animation: sim-sheen 1.8s linear infinite, sim-pulse 1.8s ease-out infinite;
+}
+@keyframes sim-sheen {
+  0%   { background-position: 220% 0; }
+  100% { background-position: -120% 0; }
+}
+@keyframes sim-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(83, 155, 245, 0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(83, 155, 245, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(83, 155, 245, 0); }
+}
+
+/* 运行中：卡片顶部「运行中」标签呼吸 */
+.sim-running-tag {
+  animation: sim-breathe 1.4s ease-in-out infinite;
+}
+@keyframes sim-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+/* 运行中：设备卡片整体透出蓝光，一眼看出哪台在跑（深色底上要更亮才看得见） */
+.sim-card--running {
+  box-shadow: 0 0 0 1px rgba(83, 155, 245, 0.55), 0 4px 24px rgba(83, 155, 245, 0.35) !important;
+}
+
+/* 动效对减少动态偏好的用户关闭 */
+@media (prefers-reduced-motion: reduce) {
+  .sim-sn--running,
+  .sim-running-tag { animation: none; }
+}
