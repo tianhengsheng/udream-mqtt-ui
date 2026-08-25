@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
   Card,
   Tag,
@@ -54,6 +54,56 @@ const DEVICE_STATUS_LABEL: Record<string, string> = {
 
 /** 状态值里代表"在忙"的文案（statusFields.format 出来的结果） */
 const BUSY_TEXTS = ['执行中', '运行中', '进行中']
+
+/** 温度曲线固定时间窗（毫秒）：x 轴恒定表示最近这么长的一段，旧点随时间滑出左端 */
+const TEMP_WINDOW_MS = 120_000
+/** 采样保底间隔：温度不变也定期记点，让平稳段画出随时间延伸的水平线 */
+const TEMP_SAMPLE_MIN_GAP_MS = 3_000
+/** 采样点数量上限（内存兜底，远大于窗口内可能的点数） */
+const TEMP_HISTORY_MAX = 200
+
+interface TempSample { t: number; v: number }
+
+/**
+ * 按水温取色：常温(≤18°C)为类型青，趋近 38°C 连续过渡到暖橙——
+ * 排水管道用它上色，"水是热的"一眼可感。
+ */
+function tempColor(temp: number, alpha = 1): string {
+  const t = Math.max(0, Math.min(1, (temp - 18) / 20))
+  const h = Math.round(175 - 145 * t)
+  return `hsla(${h}, 70%, 62%, ${alpha})`
+}
+
+/**
+ * 迷你温度曲线（sparkline）：细线 + 末端亮点 + 线下淡渐变。
+ * x 轴为固定时间窗（右端=最新采样时刻，左端=其前 TEMP_WINDOW_MS），点按时间戳定位，
+ * 波形疏密即真实节奏；纵轴按窗口内区间自适应（上下各留 1°C 余量）。
+ */
+const TempSparkline: React.FC<{ samples: TempSample[]; color: string }> = ({ samples, color }) => {
+  if (samples.length < 2) return null
+  const W = 72
+  const H = 18
+  const PAD = 2
+  const tEnd = samples[samples.length - 1].t
+  const tStart = tEnd - TEMP_WINDOW_MS
+  const pts = samples.filter((p) => p.t >= tStart)
+  if (pts.length < 2) return null
+  const vals = pts.map((p) => p.v)
+  const min = Math.min(...vals) - 1
+  const max = Math.max(...vals) + 1
+  const x = (t: number) => PAD + ((t - tStart) / TEMP_WINDOW_MS) * (W - PAD * 2)
+  const y = (v: number) => PAD + (H - PAD * 2) * (1 - (v - min) / (max - min))
+  const line = pts.map((p) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')
+  const area = `${x(pts[0].t).toFixed(1)},${H - PAD} ${line} ${x(tEnd).toFixed(1)},${H - PAD}`
+  return (
+    <svg width={W} height={H} style={{ display: 'block', opacity: 0.9 }}>
+      <polygon points={area} fill={color} opacity={0.12} />
+      <polyline points={line} fill="none" stroke={color} strokeWidth={1.2}
+        strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={x(tEnd)} cy={y(pts[pts.length - 1].v)} r={2} fill={color} />
+    </svg>
+  )
+}
 
 export const DeviceCard: React.FC<Props> = ({ device }) => {
   const [actionModal, setActionModal] = useState<ActionConfig | null>(null)
@@ -132,6 +182,23 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
 
   const bizData = device.bizData as Record<string, unknown>
 
+  // 水温历史采样（带时间戳）：温度变化立即记点，平稳期按保底间隔记点，
+  // 供状态区固定时间窗曲线展示；设备卡卸载即随之丢弃
+  const tempHistory = useRef<TempSample[]>([])
+  const curTemp = bizData.waterTemperature
+  if (typeof curTemp === 'number') {
+    const hist = tempHistory.current
+    const last = hist[hist.length - 1]
+    const now = Date.now()
+    if (!last || last.v !== curTemp || now - last.t >= TEMP_SAMPLE_MIN_GAP_MS) {
+      hist.push({ t: now, v: curTemp })
+      while (hist.length > TEMP_HISTORY_MAX
+          || (hist.length > 2 && hist[0].t < now - TEMP_WINDOW_MS - TEMP_SAMPLE_MIN_GAP_MS)) {
+        hist.shift()
+      }
+    }
+  }
+
   // 是否在跑：deviceStatus=1（运行中）或任一 *State 字段不是 IDLE
   // （染色仪 makeState/calibState/refillState、洗头床 runState 等一并覆盖，不写死字段名）
   const isRunning =
@@ -141,6 +208,10 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
         ([k, v]) => /State$/i.test(k) && typeof v === 'string' && v !== '' && v !== 'IDLE'
       ))
 
+  // 预热排水中（drainStatus 为功能态：达温暂停期间仍为 1）；运行态优先展示，两者卡面光晕互斥
+  const isDraining =
+    device.connectionStatus === 'connected' && bizData.drainStatus === 1
+
   // 设备类型主题色（深色版统一在 ../theme 里维护）：多台设备并排时靠颜色区分类型
   const theme = getTypeTheme(device.deviceType)
   const isOffline = device.connectionStatus !== 'connected'
@@ -149,7 +220,7 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
     <>
       <Card
         size="small"
-        className={isRunning ? 'sim-card--running' : undefined}
+        className={isRunning ? 'sim-card--running' : isDraining ? 'sim-card--draining' : undefined}
         style={{
           position: 'relative',
           overflow: 'hidden',
@@ -269,11 +340,14 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
                 : String(val) + (field.unit ? ` ${field.unit}` : '')
               // 「执行中」这类忙态值标蓝加粗并带脉冲点，扫一眼就知道这台在干什么
               const busy = BUSY_TEXTS.includes(display)
-              return (
-                <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between' }}>
+              const row = (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ fontSize: 12, color: TEXT_SECONDARY }}>
                     {field.label}
                   </Text>
+                  {field.key === 'waterTemperature' && (
+                    <TempSparkline samples={[...tempHistory.current]} color={theme.main} />
+                  )}
                   <span
                     style={{
                       fontSize: 12,
@@ -297,6 +371,41 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
                   </span>
                 </div>
               )
+              // 洗头床：排水管道与水温同排（右列格），流动水流即预热排水中
+              if (field.key === 'waterTemperature' && 'drainStatus' in bizData) {
+                return (
+                  <React.Fragment key={field.key}>
+                    {row}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontSize: 12, color: TEXT_SECONDARY }}>排水</Text>
+                      <div
+                        className="sim-pipe"
+                        style={isDraining && typeof curTemp === 'number'
+                          ? { borderColor: tempColor(curTemp, 0.45) }
+                          : undefined}
+                      >
+                        {isDraining && typeof curTemp === 'number' && (
+                          <div
+                            className="sim-pipe__flow"
+                            style={{
+                              background: `repeating-linear-gradient(105deg, ${tempColor(curTemp, 0.18)} 0 7px, ${tempColor(curTemp, 0.6)} 7px 14px)`,
+                              backgroundSize: '200% 100%'
+                            }}
+                          />
+                        )}
+                      </div>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: isDraining ? 600 : 500,
+                        color: isDraining && typeof curTemp === 'number' ? tempColor(curTemp) : TEXT_MUTED
+                      }}>
+                        {isDraining ? '预热中' : '关闭'}
+                      </span>
+                    </div>
+                  </React.Fragment>
+                )
+              }
+              return <React.Fragment key={field.key}>{row}</React.Fragment>
             })}
           </div>
         )}

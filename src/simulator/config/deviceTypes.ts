@@ -43,7 +43,6 @@ const washModeMap: Record<number, string> = {
 }
 const screenMap: Record<number, string> = { 0: '锁屏', 1: '解屏' }
 const pressureMap: Record<number, string> = { 1: '1档', 2: '2档', 3: '3档', 4: '4档' }
-const drainMap: Record<number, string> = { 0: '关闭', 1: '排水中' }
 
 export const DEVICE_TYPE_CONFIGS: Record<DeviceType, DeviceTypeConfig> = {
   washbed: {
@@ -119,11 +118,10 @@ export const DEVICE_TYPE_CONFIGS: Record<DeviceType, DeviceTypeConfig> = {
       { key: 'executionProgress', label: '执行步骤' },
       { key: 'washMode', label: '模式', format: (v) => washModeMap[v as number] ?? String(v) },
       { key: 'screenOn', label: '屏幕', format: (v) => screenMap[v as number] ?? String(v) },
-      { key: 'waterPressure', label: '水压', format: (v) => pressureMap[v as number] ?? String(v) },
-      { key: 'drainStatus', label: '排水', format: (v) => drainMap[v as number] ?? String(v) }
+      { key: 'waterPressure', label: '水压', format: (v) => pressureMap[v as number] ?? String(v) }
     ],
     defaultBizData: {
-      waterTemperature: 38,
+      waterTemperature: 18,
       washCount: 0,
       waterLevel: 'normal',
       executionProgress: 0,

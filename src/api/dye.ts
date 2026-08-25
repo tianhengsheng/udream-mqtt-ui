@@ -203,7 +203,7 @@ export async function importDyeDevice(file: File): Promise<Resp<void>> {
   return res.data;
 }
 
-/** 远程控制业务类型（RemoteStoreDeviceReq.type，本页只用染色仪相关的 5 个） */
+/** 远程控制业务类型（RemoteStoreDeviceReq.type；1~5 染色仪、8~14 洗头床，对应后端 DyeRemoteType） */
 export const REMOTE_TYPE = {
   /** 开始校准 */
   CALIBRATE: 1,
@@ -215,12 +215,26 @@ export const REMOTE_TYPE = {
   SHUTDOWN: 4,
   /** 重启设备 */
   REBOOT: 5,
+  /** 刷新设备状态（洗头床，get_status） */
+  REFRESH_STATUS: 8,
+  /** 屏幕解锁（洗头床，screen_on） */
+  SCREEN_UNLOCK: 9,
+  /** 屏幕锁定（洗头床，screen_off） */
+  SCREEN_LOCK: 10,
+  /** 控制水温（洗头床，set_temp，需带 waterTemperature） */
+  SET_TEMP: 12,
+  /** 开启预热排水（洗头床，drain_on） */
+  DRAIN_ON: 13,
+  /** 关闭预热排水（洗头床，drain_off） */
+  DRAIN_OFF: 14,
 } as const;
 
 export interface RemoteStoreDeviceReq {
   /** 设备MAC码（必填） */
   code: string;
   type: number;
+  /** 目标水温（°C，仅 SET_TEMP 必填） */
+  waterTemperature?: number;
   operatorId?: string;
   operatorName?: string;
 }
@@ -242,6 +256,38 @@ export async function remoteStoreDevice(req: RemoteStoreDeviceReq): Promise<bool
  *  ② dye_device_store 绑定关系置「已解绑」，同时清设备缓存。
  * 返回 `Resp<Boolean>`，result 为「是否更新到绑定行」——设备本就没绑店时会返回 false。
  */
+/** 洗头床当前水温/排水状态（云端 MQTT 状态缓存；deviceId 传 XTC 码即可，后端做 SN 翻译） */
+export interface WaterTemperatureVO {
+  waterTemperature?: number;
+  settingTemperature?: number;
+  /** 设备排水状态：0=关闭 1=开启，未上报为 null */
+  drainStatus?: number;
+}
+
+/** 坑：POST 但入参是普通 `String deviceId`（非 @RequestBody），参数须走 query string。 */
+export async function getWashbedWaterTemperature(deviceId: string): Promise<WaterTemperatureVO> {
+  const res = await http.post<Resp<WaterTemperatureVO>>(
+    '/dye/apiUnified/device/waterTemperature', null, { params: { deviceId } },
+  );
+  return (res.data?.result ?? res.data?.data ?? {}) as WaterTemperatureVO;
+}
+
+/** 远程控制操作日志（SystemLog，bizType=1=设备列表远程控制，bizId=设备 MAC 码） */
+export interface SystemLogItem {
+  id?: string;
+  beforeVal?: string;
+  afterVal?: string;
+  operationDate?: string;
+  operatorName?: string;
+}
+
+export async function getSystemLog(bizId: string): Promise<SystemLogItem[]> {
+  const res = await http.get<Resp<SystemLogItem[]>>('/mgtDye/dye/getSystemLog', {
+    params: { bizType: 1, bizId },
+  });
+  return (res.data?.result ?? res.data?.data ?? []) as SystemLogItem[];
+}
+
 export async function recycleDevice(code: string): Promise<boolean> {
   const res = await http.post<Resp<boolean>>('/mgtDye/base/dye/recycleDevice', null, {
     params: { code },

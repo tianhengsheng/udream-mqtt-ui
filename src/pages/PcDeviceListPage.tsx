@@ -50,6 +50,8 @@ import {
   TRANSFER_STATUS_OPTIONS,
   exportDyeDevice,
   fetchDyeDevicePage,
+  getSystemLog,
+  getWashbedWaterTemperature,
   importDyeDevice,
   recycleDevice,
   remoteStoreDevice,
@@ -57,6 +59,8 @@ import {
   type DyeCreamItem,
   type DyeDeviceItem,
   type DyeDeviceQuery,
+  type SystemLogItem,
+  type WaterTemperatureVO,
 } from '../api/dye';
 import { searchStoreByFuzzyName, type StoreBrief } from '../api/store';
 
@@ -281,6 +285,35 @@ export function PcDeviceListPage() {
   const [importing, setImporting] = useState(false);
   /** 远程控制目标设备（null = 弹窗关闭） */
   const [remoteRow, setRemoteRow] = useState<DyeDeviceItem | null>(null);
+
+  // ── 洗头床（XTC）远程控制弹窗专属状态 ──────────────────────────────────
+  /** 当前行是否洗头床：model=25(AI洗头床)，兜底按 MAC 码前缀 */
+  const isXtcRemote = remoteRow?.model === 25 || !!remoteRow?.macCode?.startsWith('XTC');
+  /** 当前水温 / 排水状态（云端 MQTT 缓存，打开弹窗查一次 + 每次操作后重查） */
+  const [washbedInfo, setWashbedInfo] = useState<WaterTemperatureVO | null>(null);
+  /** 操作记录（SystemLog bizType=1） */
+  const [washbedLogs, setWashbedLogs] = useState<SystemLogItem[]>([]);
+  /** 温控目标值（−/+ 调整，点中间按钮下发 set_temp） */
+  const [targetTemp, setTargetTemp] = useState(38);
+
+  const refreshWashbed = useCallback(async (mac: string) => {
+    try {
+      const [info, logs] = await Promise.all([getWashbedWaterTemperature(mac), getSystemLog(mac)]);
+      setWashbedInfo(info);
+      setWashbedLogs(logs);
+      if (info.settingTemperature) setTargetTemp(info.settingTemperature);
+    } catch {
+      /* 全局拦截器已提示 */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (remoteRow?.macCode && (remoteRow.model === 25 || remoteRow.macCode.startsWith('XTC'))) {
+      setWashbedInfo(null);
+      setWashbedLogs([]);
+      void refreshWashbed(remoteRow.macCode);
+    }
+  }, [remoteRow, refreshWashbed]);
   const [remoting, setRemoting] = useState(false);
   /** 划拨目标设备（null = 弹窗关闭） */
   const [transferRow, setTransferRow] = useState<DyeDeviceItem | null>(null);
@@ -354,17 +387,20 @@ export function PcDeviceListPage() {
     },
   };
 
-  const doRemote = async (type: number, label: string) => {
+  const doRemote = async (type: number, label: string, waterTemperature?: number) => {
     if (!remoteRow?.macCode) return;
     setRemoting(true);
     try {
       await remoteStoreDevice({
         code: remoteRow.macCode,
         type,
+        waterTemperature,
         operatorId: user?.uid,
         operatorName: user?.name,
       });
       message.success(`${label} 指令已下发`);
+      // 洗头床：操作后重查当前水温/排水状态/操作记录（原型口径：打开查一次 + 每次操作后重查）
+      if (isXtcRemote) void refreshWashbed(remoteRow.macCode);
     } catch {
       /* 全局拦截器已提示 */
     } finally {
@@ -628,6 +664,117 @@ export function PcDeviceListPage() {
         <div style={{ marginBottom: 12, color: '#8c8c8c' }}>
           设备：{remoteRow?.deviceName || '-'}（{remoteRow?.macCode}）
         </div>
+        {isXtcRemote ? (
+          <>
+            {/* 洗头床按钮组（对齐真机 PC 原型；推送OTA/停止设备/恢复出厂设置暂不接入） */}
+            <Row gutter={[8, 8]}>
+              <Col span={8}>
+                {/* 温控：−/+ 调目标值，点中间温度下发 set_temp */}
+                <div style={{ display: 'flex' }}>
+                  <Button
+                    data-testid="deviceList.washbed-temp-minus"
+                    type="primary"
+                    style={{ borderRadius: '6px 0 0 6px', padding: '0 10px' }}
+                    disabled={targetTemp <= 20}
+                    onClick={() => setTargetTemp((t) => t - 1)}
+                  >
+                    −
+                  </Button>
+                  <Button
+                    data-testid="deviceList.washbed-set-temp"
+                    type="primary"
+                    block
+                    loading={remoting}
+                    style={{ borderRadius: 0 }}
+                    onClick={() => doRemote(REMOTE_TYPE.SET_TEMP, `设置水温 ${targetTemp}°C`, targetTemp)}
+                  >
+                    {targetTemp}度
+                  </Button>
+                  <Button
+                    data-testid="deviceList.washbed-temp-plus"
+                    type="primary"
+                    style={{ borderRadius: '0 6px 6px 0', padding: '0 10px' }}
+                    disabled={targetTemp >= 60}
+                    onClick={() => setTargetTemp((t) => t + 1)}
+                  >
+                    +
+                  </Button>
+                </div>
+              </Col>
+              <Col span={8}>
+                <Button
+                  data-testid="deviceList.washbed-refresh-status"
+                  type="primary"
+                  block
+                  loading={remoting}
+                  onClick={() => doRemote(REMOTE_TYPE.REFRESH_STATUS, '查询状态')}
+                >
+                  查询状态
+                </Button>
+              </Col>
+              <Col span={8}>
+                <Button
+                  data-testid="deviceList.washbed-screen-lock"
+                  type="primary"
+                  block
+                  loading={remoting}
+                  onClick={() => doRemote(REMOTE_TYPE.SCREEN_LOCK, '锁屏')}
+                >
+                  锁屏
+                </Button>
+              </Col>
+              <Col span={8}>
+                <Button
+                  data-testid="deviceList.washbed-screen-unlock"
+                  type="primary"
+                  block
+                  loading={remoting}
+                  onClick={() => doRemote(REMOTE_TYPE.SCREEN_UNLOCK, '解锁')}
+                >
+                  解锁
+                </Button>
+              </Col>
+              <Col span={8}>
+                {/* 排水开关：按钮实时显示排水状态，点击带二次确认后切换（超时防护后续版本接入） */}
+                <Popconfirm
+                  title={washbedInfo?.drainStatus === 1 ? '确认关闭预热排水？' : '确认开启预热排水？'}
+                  description={washbedInfo?.drainStatus === 1
+                    ? '关闭后设备停止预热排水。'
+                    : '开启后设备将持续预热排水，请确认已选对设备。'}
+                  okText="确认下发"
+                  cancelText="取消"
+                  onConfirm={() => (washbedInfo?.drainStatus === 1
+                    ? doRemote(REMOTE_TYPE.DRAIN_OFF, '关闭排水')
+                    : doRemote(REMOTE_TYPE.DRAIN_ON, '开启排水'))}
+                >
+                  <Button
+                    data-testid="deviceList.washbed-drain-toggle"
+                    type="primary"
+                    danger={washbedInfo?.drainStatus === 1}
+                    block
+                    loading={remoting}
+                  >
+                    排水开关：{washbedInfo?.drainStatus === 1 ? '开启' : '关闭'}
+                  </Button>
+                </Popconfirm>
+              </Col>
+            </Row>
+            <div style={{ marginTop: 10, color: '#ff4d4f', fontSize: 13 }}>
+              当前水温：{washbedInfo?.waterTemperature != null ? `${washbedInfo.waterTemperature}°` : '-'}
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>操作记录</div>
+              <div style={{ maxHeight: 180, overflowY: 'auto', fontSize: 12, color: '#595959' }}>
+                {washbedLogs.length === 0 && <div style={{ color: '#bfbfbf' }}>暂无记录</div>}
+                {washbedLogs.map((l) => (
+                  <div key={l.id} style={{ padding: '2px 0' }}>
+                    {(l.operationDate || '').replace('T', ' ').slice(0, 19)}　{l.operatorName || '-'}　操作　{l.afterVal || '-'}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
         <Row gutter={[8, 8]}>
           {remoteButtons.map((b) => (
             <Col span={8} key={b.key}>
@@ -662,6 +809,7 @@ export function PcDeviceListPage() {
             </Col>
           ))}
         </Row>
+        )}
       </Modal>
 
       <TransferModal row={transferRow} onClose={() => setTransferRow(null)} onDone={() => void load()} />

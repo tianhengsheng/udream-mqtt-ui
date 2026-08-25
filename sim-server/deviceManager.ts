@@ -118,7 +118,9 @@ class DeviceManager {
 
     const defaultBizData = opts.deviceType === 'washbed'
       ? {
-          waterTemperature: Math.round(randFloat(36, 40)),
+          // 初始为常温附近（无加热源的静置状态），排水/洗头才会升温
+          waterTemperature: 18 + Math.round(randFloat(-1, 1)),
+          drainStatus: 0,
           washCount: 0,
           waterLevel: 'normal',
           executionProgress: 0,

@@ -118,7 +118,8 @@ export function SimulatorPage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+              // 固定卡宽：设备少时卡片不随容器拉通铺满（拉长很难看），放不下自动换行
+              gridTemplateColumns: 'repeat(auto-fill, min(380px, 100%))',
               gap: 16,
             }}
           >

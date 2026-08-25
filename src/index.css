@@ -483,8 +483,36 @@ body {
   box-shadow: 0 0 0 1px rgba(83, 155, 245, 0.55), 0 4px 24px rgba(83, 155, 245, 0.35) !important;
 }
 
+/* 排水中：卡片透出青色水光（与运行中的蓝区分；运行态优先，两者互斥展示） */
+.sim-card--draining {
+  box-shadow: 0 0 0 1px rgba(108, 216, 208, 0.55), 0 4px 24px rgba(108, 216, 208, 0.30) !important;
+}
+
+/* 排水管道：与水温曲线同尺寸的迷你水管。排水时管内斜纹水流向右滚动（颜色随水温
+   由青转暖，JS 内联），关闭时管腔置空 */
+.sim-pipe {
+  width: 72px;
+  flex: none;
+  height: 8px;
+  border-radius: 4px;
+  background: #22272e;
+  border: 1px solid #444c56;
+  overflow: hidden;
+  position: relative;
+}
+.sim-pipe__flow {
+  position: absolute;
+  inset: 0;
+  animation: sim-pipe-flow 0.8s linear infinite;
+}
+@keyframes sim-pipe-flow {
+  from { background-position: 0 0; }
+  to   { background-position: 28px 0; }
+}
+
 /* 动效对减少动态偏好的用户关闭 */
 @media (prefers-reduced-motion: reduce) {
   .sim-sn--running,
-  .sim-running-tag { animation: none; }
+  .sim-running-tag,
+  .sim-pipe__flow { animation: none; }
 }

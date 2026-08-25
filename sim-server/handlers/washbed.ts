@@ -31,19 +31,28 @@ const WASH_MODE_TOTAL_STEPS: Record<number, number> = {
 const DRAIN_PAUSE_TEMP = 38
 const DRAIN_RESUME_TEMP = 36
 const DRAIN_TICK_MS = 3000
-const DRAIN_TEMP_STEP = 1
+const DRAIN_TEMP_STEP = 2
+
+/** 常温（°C）：停止排水/洗头后水温以 1°C/拍（8s 空闲拍）逐渐回落到该值附近 */
+const AMBIENT_TEMP = 18
 
 export class WashbedHandler implements DeviceHandler {
   onConnected(device: DeviceRef, ctx: HandlerCtx): void {
     const { deviceId } = device.opts
     // 模拟器已移除推送式 OTA（ota/notify），不再订阅
-    // 水温微小波动（8s 间隔）；新协议水温为整数 °C
+    // 空闲水温模型（8s 间隔）：无加热源时向常温逐渐回落（1°C/拍），
+    // 到常温后仅在 ±1°C 内微抖动模拟环境波动；新协议水温为整数 °C
     const timer = setInterval(() => {
       try {
         if (device.deviceStatus !== '0') return
-        // 预热排水循环期间水温由 drainTimer 按曲线驱动，随机游走会互相覆盖，跳过
+        // 预热排水循环期间水温由 drainTimer 按曲线驱动，此处让位，跳过
         if (device.bizData.drainStatus === 1) return
-        device.bizData.waterTemperature = randInt(36, 41)
+        const temp = device.bizData.waterTemperature as number
+        if (Math.abs(temp - AMBIENT_TEMP) <= 2) {
+          device.bizData.waterTemperature = AMBIENT_TEMP + randInt(-1, 1)
+        } else {
+          device.bizData.waterTemperature = temp > AMBIENT_TEMP ? temp - 2 : temp + 2
+        }
         ctx.broadcastDeviceUpdate(deviceId, { bizData: { ...device.bizData } })
       } catch { /* ignore */ }
     }, 8000)
