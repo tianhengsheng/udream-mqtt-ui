@@ -17,6 +17,8 @@ export interface WashbedBizData {
   screenOn: number
   /** 水压强度：1/2/3/4 */
   waterPressure: number
+  /** 设备排水状态：0=关闭 1=开启 */
+  drainStatus: number
 }
 
 export interface DyemachinePump {
