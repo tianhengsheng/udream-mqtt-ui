@@ -39,7 +39,8 @@ const washModeMap: Record<number, string> = {
   1: '女士速洗',
   2: '洗护模式',
   3: '养护模式',
-  4: '消毒模式'
+  4: '消毒模式',
+  5: '速冲模式(90秒)'
 }
 const screenMap: Record<number, string> = { 0: '锁屏', 1: '解屏' }
 const pressureMap: Record<number, string> = { 1: '1档', 2: '2档', 3: '3档', 4: '4档' }
@@ -63,7 +64,8 @@ export const DEVICE_TYPE_CONFIGS: Record<DeviceType, DeviceTypeConfig> = {
               { label: '女士速洗', value: 1 },
               { label: '洗护模式', value: 2 },
               { label: '养护模式', value: 3 },
-              { label: '消毒模式', value: 4 }
+              { label: '消毒模式', value: 4 },
+              { label: '速冲模式(90秒)', value: 5 }
             ],
             defaultValue: 0
           },

@@ -19,7 +19,9 @@ const WASH_MODE_TOTAL_STEPS: Record<number, number> = {
   1: 7,
   2: 10,
   3: 12,
-  4: 4
+  4: 4,
+  // 5 速冲模式（90 秒）：真实步骤表由固件定义，模拟器按 3 步演示
+  5: 3
 }
 
 /**

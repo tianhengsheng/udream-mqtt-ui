@@ -13,6 +13,7 @@ import { PcDyeChangePage } from './pages/PcDyeChangePage';
 import { PcDyeBedRecordPage } from './pages/PcDyeBedRecordPage';
 import PcFirmwareUpgradePage from './pages/PcFirmwareUpgradePage';
 import { AppDyeDevicePage } from './pages/AppDyeDevicePage';
+import { AppWashbedPage } from './pages/AppWashbedPage';
 import { AppDyeColorPage } from './pages/AppDyeColorPage';
 import { bindNavigate } from './nav';
 
@@ -43,6 +44,7 @@ const PAGES = [
   { key: 'pcDyeBedRecord', client: 'pc', label: '洗头记录', Comp: PcDyeBedRecordPage },
   { key: 'pcFirmwareUpgrade', client: 'pc', label: '固件升级管理', Comp: PcFirmwareUpgradePage },
   { key: 'appDyeDevice', client: 'app', label: '智染设备', Comp: AppDyeDevicePage },
+  { key: 'appWashbed', client: 'app', label: '洗头床控制', Comp: AppWashbedPage },
   // 下料页不出菜单：从「智染设备」页点「去下料」进入（label 跳转对 hidden 页有效，见 nav.ts）
   { key: 'appDyeColor', client: 'app', label: '下料(App)', Comp: AppDyeColorPage, hidden: true },
   // 框架自检页：脚手架连通性验证用，平时收起（__t.nav('框架自检') 可进）
