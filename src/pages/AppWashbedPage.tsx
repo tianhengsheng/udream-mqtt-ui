@@ -36,14 +36,6 @@ const STATUS_TEXT: Record<string, string> = {
   error: '离线',
 };
 
-/** 模式兜底清单（Nacos rinse_type_config 缺条目时合并展示，值域对齐 DyeConstant.RinseType） */
-const FALLBACK_MODES: RinseTypeConfig[] = [
-  { rinseType: 0, rinseTypeName: '轻度清洁模式', rinseTypeMinute: 5 },
-  { rinseType: 1, rinseTypeName: '中度清洁模式', rinseTypeMinute: 8 },
-  { rinseType: 2, rinseTypeName: '深度清洁模式', rinseTypeMinute: 13 },
-  { rinseType: 3, rinseTypeName: '养护模式', rinseTypeMinute: 15 },
-  { rinseType: 5, rinseTypeName: '速冲模式', rinseTypeMinute: 0 },
-];
 
 /** 模式展示名：速冲按秒标注，其余按分钟 */
 const modeLabel = (m: RinseTypeConfig) =>
@@ -72,8 +64,8 @@ export function AppWashbedPage() {
   /** 水压强度（本地调节，随「开启」一起下发） */
   const [pressure, setPressure] = useState(2);
   /** 当前模式（随「开启」一起下发） */
-  const [mode, setMode] = useState(5);
-  const [modes, setModes] = useState<RinseTypeConfig[]>(FALLBACK_MODES);
+  const [mode, setMode] = useState<number>(5);
+  const [modes, setModes] = useState<RinseTypeConfig[]>([]);
   /** 模式选择浮层（原型底部 picker） */
   const [modePickerOpen, setModePickerOpen] = useState(false);
   const [modeDraft, setModeDraft] = useState(5);
@@ -108,18 +100,16 @@ export function AppWashbedPage() {
       .finally(() => setLoading(false));
   }, [storeId]);
 
-  /** 模式配置（配置里没有的兜底条目合并进来，速冲必展示） */
+  /** 模式配置：只信 getRinseTypeConfig（config_const.rinse_type_config）真实返回，
+   *  不做本地兜底——列表里有没有速冲，就是在验证环境配置是否已刷（这正是自测目的）。 */
   useEffect(() => {
     fetchRinseTypeConfig()
       .then((list) => {
-        if (!list.length) return;
-        const merged = [...list];
-        for (const fb of FALLBACK_MODES) {
-          if (!merged.some((m) => m.rinseType === fb.rinseType)) merged.push(fb);
-        }
-        setModes(merged);
+        setModes(list);
+        // 当前选中模式不在配置里（如速冲配置未刷）时回落到第一条，避免下发环境不认的模式码
+        setMode((cur) => (list.some((m) => m.rinseType === cur) ? cur : list[0]?.rinseType ?? cur));
       })
-      .catch(() => { /* 配置读不到用兜底 */ });
+      .catch((e) => message.error(`模式配置读取失败：${errText(e)}`));
   }, []);
 
   /** 切设备查一次 + 8s 轮询 */
