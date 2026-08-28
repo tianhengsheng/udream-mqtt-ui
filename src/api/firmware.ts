@@ -6,29 +6,37 @@
  *  - dye/dye-api/.../req/DyeFirmwareUpgradeSaveReq.java、vo/DyeFirmwareUpgradeListVO.java
  *  - base/base-service/.../controller/common/CommOssController.java（getUploadSign 直传签名）
  *
- * 主/副固件包约定（与后端 DyeFirmwareUpgrade 实体一致）：
- *  version/firmwareUpgradeUrl/md5/size = 主包；sub* = 副包。
- *  四代机(model=4)：主包=P4(主控)、副包=C5，两包必填；其他型号只有主包。
+ * 芯片维度（与后端 DyeFirmwareUpgrade 实体一致）：一行 = 一颗芯片的一个固件包。
+ *  四代机(model=4)：chip 必填（esp32p4-P4主控 / esp32c5-C5），两颗芯片各自独立版本号、独立上下架；
+ *  其他型号不区分芯片，chip 为空。
  */
 import SparkMD5 from 'spark-md5';
 import { http } from './client';
 import { bigIntSafeParse, pick } from './common';
 import type { PageResp, Resp } from '../types';
 
+/** 芯片枚举，code 与后端 DyeConstant.Chip、MQTT 协议 targets 完全一致 */
+export const CHIPS = [
+  { value: 'esp32p4', label: 'P4 主控' },
+  { value: 'esp32c5', label: 'C5' },
+] as const;
+
+export const CHIP_LABEL: Record<string, string> = Object.fromEntries(
+  CHIPS.map((c) => [c.value, c.label]),
+);
+
 export interface FirmwareItem {
   id?: string | number;
   createTime?: string;
   sort?: number;
   model?: number;
+  /** 四代机必填：esp32p4 / esp32c5；其他型号为空 */
+  chip?: string;
   firmwareUpgradeUrl?: string;
   status?: number;
   version?: string;
   md5?: string;
   size?: number;
-  subVersion?: string;
-  subFirmwareUrl?: string;
-  subMd5?: string;
-  subSize?: number;
   createUserId?: string | number;
   createUserName?: string;
 }
@@ -55,7 +63,7 @@ export async function fetchFirmwarePage(
   return { list, total };
 }
 
-/** 保存/更新固件（后端按 id 是否存在区分新增/编辑；四代机两包齐全由后端校验兜底） */
+/** 保存/更新固件（后端按 id 是否存在区分新增/编辑；四代机必须带 chip，由后端校验兜底） */
 export async function saveFirmware(payload: FirmwareItem): Promise<Resp<void>> {
   const res = await http.post<Resp<void>>(
     '/dye/apiUnified/firmwareUpgrade/saveOrUpdateDyeFirmwareUpgrade',

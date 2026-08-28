@@ -5,10 +5,8 @@
  *  列表 listDyeFirmwareUpgrade / 保存 saveOrUpdateDyeFirmwareUpgrade / 上下架 updateDyeFirmwareUpgradeStatus。
  * 固件包走 base 服务 getUploadSign 的 OSS 直传，前端算 md5（spark-md5）+ File.size 回填。
  *
- * 主/副固件包约定：四代机(model=4)必须传两个包——主包=P4(主控)、副包=C5；
- * 其他型号只有主包（与旧页面行为一致）。
- * 版本号合一（2026-08-24 定稿）：四代机成对发布，P4/C5 共用一个版本号，
- * 提交时 subVersion=version 同值传，后端与 MQTT 协议形态不变（p4/c5 各自带 version，值相同）。
+ * 芯片维度（2026-08-28 定稿）：一行 = 一颗芯片的一个固件包。四代机(model=4)必须选芯片
+ * （P4 主控 / C5），两颗芯片各自独立版本号、独立上下架、独立升级；其他型号不区分芯片。
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -35,6 +33,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { CheckOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import {
+  CHIPS,
+  CHIP_LABEL,
   fetchFirmwarePage,
   fileMd5,
   saveFirmware,
@@ -103,8 +103,7 @@ export default function PcFirmwareUpgradePage() {
   const [editing, setEditing] = useState<FirmwareItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
-  const [mainPkg, setMainPkg] = useState<PkgState>({});
-  const [subPkg, setSubPkg] = useState<PkgState>({});
+  const [pkg, setPkg] = useState<PkgState>({});
   const model = Form.useWatch('model', form);
 
   const load = useCallback(async (pn = pageNum, ps = pageSize) => {
@@ -130,8 +129,7 @@ export default function PcFirmwareUpgradePage() {
 
   function openAdd() {
     setEditing(null);
-    setMainPkg({});
-    setSubPkg({});
+    setPkg({});
     form.resetFields();
     form.setFieldsValue({ status: 0, sort: 0 });
     setModalOpen(true);
@@ -139,10 +137,10 @@ export default function PcFirmwareUpgradePage() {
 
   function openEdit(row: FirmwareItem) {
     setEditing(row);
-    setMainPkg({ url: row.firmwareUpgradeUrl, md5: row.md5, size: row.size });
-    setSubPkg({ url: row.subFirmwareUrl, md5: row.subMd5, size: row.subSize });
+    setPkg({ url: row.firmwareUpgradeUrl, md5: row.md5, size: row.size });
     form.setFieldsValue({
       model: row.model,
+      chip: row.chip,
       sort: row.sort,
       status: row.status,
       version: row.version,
@@ -151,8 +149,7 @@ export default function PcFirmwareUpgradePage() {
   }
 
   /** 上传固件包 → OSS 直传 + 前端算 md5/size 回填 */
-  async function uploadPkg(file: File, which: 'main' | 'sub') {
-    const setPkg = which === 'main' ? setMainPkg : setSubPkg;
+  async function uploadPkg(file: File) {
     setPkg((p) => ({ ...p, uploading: true }));
     try {
       const [{ url }, md5] = await Promise.all([uploadFirmwareToOss(file), fileMd5(file)]);
@@ -167,24 +164,20 @@ export default function PcFirmwareUpgradePage() {
   async function submit() {
     const values = await form.validateFields();
     const isFour = values.model === MODEL_FOUR;
-    if (!mainPkg.url) { message.warning(isFour ? '请上传 P4 主控固件包' : '请上传固件包'); return; }
-    if (isFour && !subPkg.url) { message.warning('请上传 C5 固件包'); return; }
+    if (!pkg.url) { message.warning('请上传固件包'); return; }
     setSaving(true);
     try {
       await saveFirmware({
         id: editing?.id,
         model: values.model,
+        // 四代机一条记录只维护一颗芯片；其他型号不传 chip（后端会校验拒绝）
+        chip: isFour ? values.chip : undefined,
         sort: values.sort,
         status: values.status,
         version: values.version?.trim(),
-        firmwareUpgradeUrl: mainPkg.url,
-        md5: mainPkg.md5,
-        size: mainPkg.size,
-        // 版本号合一：四代机 P4/C5 成对发布共用 version（后端 sub_version 存同值）
-        subVersion: isFour ? values.version?.trim() : undefined,
-        subFirmwareUrl: isFour ? subPkg.url : undefined,
-        subMd5: isFour ? subPkg.md5 : undefined,
-        subSize: isFour ? subPkg.size : undefined,
+        firmwareUpgradeUrl: pkg.url,
+        md5: pkg.md5,
+        size: pkg.size,
       });
       // 业务失败由全局拦截器弹错并 reject，走到这里即成功
       message.success(editing ? '已更新' : '已新增');
@@ -217,15 +210,12 @@ export default function PcFirmwareUpgradePage() {
       render: (m: number) => MODEL_LABEL[m] ?? m,
     },
     {
-      title: '主固件包（四代机=P4 主控）', key: 'main', width: 280,
-      render: (_, r) => <PkgCell version={r.version} url={r.firmwareUpgradeUrl} md5={r.md5} size={r.size} />,
+      title: '芯片', dataIndex: 'chip', width: 100,
+      render: (c: string) => (c ? <Tag color="purple">{CHIP_LABEL[c] ?? c}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>),
     },
     {
-      title: 'C5 固件包（仅四代机）', key: 'sub', width: 280,
-      render: (_, r) =>
-        r.model === MODEL_FOUR
-          ? <PkgCell version={r.subVersion} url={r.subFirmwareUrl} md5={r.subMd5} size={r.subSize} />
-          : <span style={{ color: '#bfbfbf' }}>-</span>,
+      title: '固件包', key: 'pkg', width: 300,
+      render: (_, r) => <PkgCell version={r.version} url={r.firmwareUpgradeUrl} md5={r.md5} size={r.size} />,
     },
     {
       title: '状态', dataIndex: 'status', width: 80,
@@ -253,15 +243,15 @@ export default function PcFirmwareUpgradePage() {
 
   const isFour = model === MODEL_FOUR;
 
-  /** 单组固件包上传控件（主/副共用）：与 admin 原型一致的 "+" 方块（picture-card 风格），不限文件类型 */
-  const pkgUploader = (which: 'main' | 'sub', pkg: PkgState) => (
+  /** 固件包上传控件：与 admin 原型一致的 "+" 方块（picture-card 风格），不限文件类型 */
+  const pkgUploader = () => (
     <div>
       <Upload
-        beforeUpload={(f) => { uploadPkg(f as unknown as File, which); return false; }}
+        beforeUpload={(f) => { uploadPkg(f as unknown as File); return false; }}
         showUploadList={false}
       >
         <div
-          data-testid={`firmware.upload-${which}`}
+          data-testid="firmware.upload"
           style={{
             width: 102, height: 102, border: '1px dashed #d9d9d9', borderRadius: 8,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -335,14 +325,9 @@ export default function PcFirmwareUpgradePage() {
         destroyOnClose
       >
         <Form form={form} labelCol={{ span: 6 }} wrapperCol={{ span: 17 }} colon={false}>
-          <Form.Item label={isFour ? 'P4 主控固件包' : '上传固件包'} required>
-            {pkgUploader('main', mainPkg)}
+          <Form.Item label="上传固件包" required>
+            {pkgUploader()}
           </Form.Item>
-          {isFour && (
-            <Form.Item label="C5 固件包" required>
-              {pkgUploader('sub', subPkg)}
-            </Form.Item>
-          )}
           <Form.Item label="设备类型" name="model" rules={[{ required: true, message: '请选择设备类型' }]}>
             <Select
               placeholder="请选择" options={FIRMWARE_MODELS}
@@ -350,6 +335,19 @@ export default function PcFirmwareUpgradePage() {
               data-testid="firmware.model-select"
             />
           </Form.Item>
+          {isFour && (
+            <Form.Item
+              label="芯片" name="chip"
+              rules={[{ required: true, message: '请选择固件所属芯片' }]}
+              extra="P4/C5 独立升级：一条记录只维护一颗芯片，各自版本号互不影响"
+            >
+              <Select
+                placeholder="请选择" options={[...CHIPS]}
+                disabled={!!editing}
+                data-testid="firmware.chip-select"
+              />
+            </Form.Item>
+          )}
           <Form.Item label="排序" name="sort">
             <InputNumber min={0} style={{ width: '100%' }} placeholder="请输入排序" />
           </Form.Item>
@@ -357,7 +355,7 @@ export default function PcFirmwareUpgradePage() {
             label="版本号"
             name="version"
             rules={isFour ? [{ required: true, message: '请输入版本号' }] : []}
-            extra={isFour ? 'P4/C5 成对发布，共用此版本号' : undefined}
+            extra={isFour ? '仅该芯片的版本号' : undefined}
           >
             <Input placeholder="请输入版本号" />
           </Form.Item>

@@ -1,7 +1,7 @@
 # MQTT/IoT 联调自测 UI 测试手册（test-playbook）
 
 > AI/人工做 UI 测试的唯一入口。**新增/修改页面交互必须同步本文件**（规则见 CLAUDE.md）。
-> 最后同步：2026-08-24（四代机拉取式 OTA：模拟器去推送式 OTA 加「拉取OTA」、新增固件升级管理(PC)页）｜
+> 最后同步：2026-08-28（四代机 P4/C5 独立升级：固件表加 chip、一芯片一条记录、面板按芯片分别发布）｜
 > 覆盖页面：设备模拟器 / 控制面板 / 设备列表(PC) / 调色记录(PC) / 换料记录(PC) / 洗头记录(PC) / 固件升级管理(PC) / 智染设备(App) / 下料(App)（+ 框架自检 hidden）
 
 ## 0. 四步工作法（每次测试照此执行，控制 token）
@@ -493,19 +493,18 @@ data-testid 一览：`appDye.refresh` / `appDye.device-code` / `appDye.store-id`
   保存 saveOrUpdateDyeFirmwareUpgrade / 上下架 updateDyeFirmwareUpgradeStatus。
 - 就绪判定：`__t.read('设备固件升级管理')` 有值且表格加载完成。
 - 筛选：状态下拉 `firmware.filter-status` + 配置时间范围 → `__t.click('查询')`。
-- 新增：`__t.click('添加')` → 弹窗选设备类型（`firmware.model-select`）→
-  **选「四代机(04)」出两个上传框、一个版本号**：P4/C5 成对发布共用版本号（提交时 subVersion=version 同值），
-  上传框 `firmware.upload-main`（P4 主控）/ `firmware.upload-sub`（C5），两包都必填（前端拦 + 后端校验兜底）；
-  其他型号只有主包一组。
+- 新增：`__t.click('添加')` → 上传固件包（`firmware.upload`）→ 选设备类型（`firmware.model-select`）→
+  **选「四代机(04)」多出「芯片」下拉**（`firmware.chip-select`：P4 主控 / C5，必填）→ 版本号（仅该芯片）。
+  **一条记录 = 一颗芯片的一个包**，两颗芯片各发一次、版本号互不相干；其他型号不出芯片项。
 - 上传走 base 服务 `getUploadSign` OSS 直传（PostObject），md5 前端 spark-md5 算、size 取 File.size，
   上传成功后 url/md5/size 显示在上传按钮下方。**Upload 组件文件对话框 __t 驱不动**，
   测试时用 DataTransfer 造 File 触发 input[type=file]，或只测已回填态的保存链路。
-- 上下架：行内「上架/下架」带 Popconfirm；上架后该记录即为设备 `get_ota_info` 拉取到的版本（model=4 最新上架一条）。
-- 主/副包语义：列表两列分别是「主固件包（四代机=P4 主控）」「C5 固件包（仅四代机）」，
-  对应 DB `dye_firmware_upgrade` 主字段 与 `sub_*` 字段。
-- DB 核验（四代机 sub_version 应与 version 同值）：`SELECT CAST(id AS CHAR) id, model, version, sub_version,
-  status, md5, sub_md5, size, sub_size FROM udream_dye.dye_firmware_upgrade WHERE is_delete=0
-  ORDER BY create_time DESC LIMIT 5;`
+- 上下架：行内「上架/下架」带 Popconfirm；**按芯片各自生效**——上架后该记录即为设备该芯片 `get_ota_info`
+  拉取到的版本（model=4 + 同 chip 中最新上架一条），另一颗芯片不受影响。
+- 列表列：「芯片」（Tag，非四代机为 -）+「固件包」（版本号/url/md5/size）。
+- DB 核验：`SELECT CAST(id AS CHAR) id, model, chip, version, status, md5, size
+  FROM udream_dye.dye_firmware_upgrade WHERE is_delete=0 ORDER BY create_time DESC LIMIT 5;`
+  四代机应为一芯片一行；`sub_*` 四列已废弃不再写入（待清理）。
 
 ## 3. 测试数据
 
