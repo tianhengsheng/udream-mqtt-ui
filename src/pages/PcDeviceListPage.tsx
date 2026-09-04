@@ -63,6 +63,9 @@ import {
   type WaterTemperatureVO,
 } from '../api/dye';
 import { searchStoreByFuzzyName, type StoreBrief } from '../api/store';
+import { OtaBatchPushModal } from '../components/OtaBatchPushModal';
+import { OtaBatchStatusBar } from '../components/OtaBatchStatusBar';
+import { CloudUploadOutlined } from '@ant-design/icons';
 
 /** 整行标红色值（后端 mark=true：同门店同型号 >=2 台） */
 const MARK_COLOR = '#ff4d4f';
@@ -283,6 +286,13 @@ export function PcDeviceListPage() {
   const [moreFilter, setMoreFilter] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  // 批量升级：勾选的设备（按行 key 记，翻页后保留），弹窗按勾选台数汇总
+  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [selectedRows, setSelectedRows] = useState<DyeDeviceItem[]>([]);
+  const [otaOpen, setOtaOpen] = useState(false);
+  // 同一时刻只允许一个活跃批次：状态条回报有活跃批次时「批量升级」置灰；推送完让状态条立即重拉
+  const [otaActive, setOtaActive] = useState(false);
+  const [otaRefreshSeq, setOtaRefreshSeq] = useState(0);
   /** 远程控制目标设备（null = 弹窗关闭） */
   const [remoteRow, setRemoteRow] = useState<DyeDeviceItem | null>(null);
 
@@ -616,6 +626,20 @@ export function PcDeviceListPage() {
           <Button data-testid="deviceList.export" loading={exporting} onClick={onExport}>
             导出
           </Button>
+          <Tooltip title={otaActive
+            ? '当前有进行中的批量升级，等完成或取消后再推'
+            : selectedRows.length ? `对勾选的 ${selectedRows.length} 台设备批量推送 OTA 升级` : '先在列表勾选设备'}>
+            <Button
+              data-testid="deviceList.batchOta"
+              type="primary"
+              icon={<CloudUploadOutlined />}
+              disabled={selectedRows.length === 0 || otaActive}
+              onClick={() => setOtaOpen(true)}
+            >
+              批量升级{selectedRows.length ? `（${selectedRows.length}）` : ''}
+            </Button>
+          </Tooltip>
+          <OtaBatchStatusBar refreshSeq={otaRefreshSeq} onActiveChange={setOtaActive} />
           <Upload {...uploadProps}>
             <Button data-testid="deviceList.import" icon={<UploadOutlined />} loading={importing}>
               导入
@@ -636,6 +660,12 @@ export function PcDeviceListPage() {
           columns={columns}
           dataSource={rows}
           scroll={{ x: 2200 }}
+          rowSelection={{
+            selectedRowKeys: selectedKeys,
+            preserveSelectedRowKeys: true,
+            onChange: (keys, rowsSel) => { setSelectedKeys(keys); setSelectedRows(rowsSel); },
+            columnWidth: 40,
+          }}
           // mark=true 整行标红（后端口径：同门店同型号 >=2 台）
           onRow={(r) => (r.mark ? { style: { color: MARK_COLOR } } : {})}
           pagination={{
@@ -653,6 +683,12 @@ export function PcDeviceListPage() {
           }}
         />
       </Card>
+
+      <OtaBatchPushModal
+        open={otaOpen}
+        devices={selectedRows}
+        onClose={() => { setOtaOpen(false); setOtaRefreshSeq((n) => n + 1); }}
+      />
 
       <Modal
         open={!!remoteRow}

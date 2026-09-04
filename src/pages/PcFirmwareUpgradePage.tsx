@@ -30,7 +30,7 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { CheckOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { CheckOutlined, FileZipOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import {
   CHIPS,
@@ -43,6 +43,8 @@ import {
   type FirmwareItem,
 } from '../api/firmware';
 import { MODEL_LABEL } from '../api/dye';
+import { setOtaRecordPreset } from '../api/otaRecord';
+import { navigateTo } from '../nav';
 
 const { Text } = Typography;
 const DATETIME_FMT = 'YYYY-MM-DD HH:mm:ss';
@@ -71,21 +73,27 @@ function fmtSize(size?: number): string {
   return `${size} B`;
 }
 
-/** 固件包单元格：版本号加粗 + url 缩略（悬浮全量）+ md5/size */
-function PkgCell({ version, url, md5, size }: { version?: string; url?: string; md5?: string; size?: number }) {
+/**
+ * 固件包单元格：单行「v0.1.3（C5）+ 固件图标」，芯片灰字弱化（与升级记录页一致）；
+ * url / md5 / 大小不占行，悬浮图标查看。
+ */
+function PkgCell({ version, chip, url, md5, size }: { version?: string; chip?: string; url?: string; md5?: string; size?: number }) {
   if (!version && !url) return <span style={{ color: '#bfbfbf' }}>-</span>;
-  return (
-    <div style={{ maxWidth: 260 }}>
-      <div><Text strong>{version || '-'}</Text></div>
-      <Tooltip title={url}>
-        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1677ff', fontSize: 12 }}>
-          {url || '-'}
-        </div>
-      </Tooltip>
-      <div style={{ color: '#8c8c8c', fontSize: 12 }}>
-        md5: {md5 ? `${md5.slice(0, 8)}…` : '-'} · {fmtSize(size)}
-      </div>
+  const detail = (
+    <div style={{ fontSize: 12, maxWidth: 420, wordBreak: 'break-all' }}>
+      <div>地址：{url || '-'}</div>
+      <div>md5：{md5 || '-'}</div>
+      <div>大小：{fmtSize(size)}</div>
     </div>
+  );
+  return (
+    <span style={{ whiteSpace: 'nowrap' }}>
+      <Text strong>{version || '-'}</Text>
+      {chip && <span style={{ color: '#8c8c8c', marginLeft: 6 }}>（{CHIP_LABEL[chip] ?? chip}）</span>}
+      <Tooltip title={detail} placement="topLeft">
+        <FileZipOutlined style={{ marginLeft: 8, color: '#1677ff', cursor: 'pointer' }} />
+      </Tooltip>
+    </span>
   );
 }
 
@@ -204,26 +212,23 @@ export default function PcFirmwareUpgradePage() {
 
   const columns: ColumnsType<FirmwareItem> = [
     { title: '排序', dataIndex: 'sort', width: 60 },
-    { title: '配置时间', dataIndex: 'createTime', width: 165 },
+    { title: '配置时间', dataIndex: 'createTime', width: 150 },
     {
-      title: '设备类型', dataIndex: 'model', width: 140,
+      title: '设备类型', dataIndex: 'model', width: 120,
       render: (m: number) => MODEL_LABEL[m] ?? m,
     },
     {
-      title: '芯片', dataIndex: 'chip', width: 100,
-      render: (c: string) => (c ? <Tag color="purple">{CHIP_LABEL[c] ?? c}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>),
+      // 芯片并入固件包列的灰字（与升级记录页一致），不再单独一列
+      title: '固件包', key: 'pkg',
+      render: (_, r) => <PkgCell version={r.version} chip={r.chip} url={r.firmwareUpgradeUrl} md5={r.md5} size={r.size} />,
     },
     {
-      title: '固件包', key: 'pkg', width: 300,
-      render: (_, r) => <PkgCell version={r.version} url={r.firmwareUpgradeUrl} md5={r.md5} size={r.size} />,
-    },
-    {
-      title: '状态', dataIndex: 'status', width: 80,
+      title: '状态', dataIndex: 'status', width: 70,
       render: (s: number) => (s === 1 ? <Tag color="green">上架</Tag> : <Tag>下架</Tag>),
     },
-    { title: '创建人', dataIndex: 'createUserName', width: 100 },
+    { title: '创建人', dataIndex: 'createUserName', width: 90 },
     {
-      title: '操作', key: 'op', width: 130, fixed: 'right',
+      title: '操作', key: 'op', width: 190, fixed: 'right',
       render: (_, r) => (
         <Space size={4}>
           <Popconfirm
@@ -236,6 +241,18 @@ export default function PcFirmwareUpgradePage() {
             </Button>
           </Popconfirm>
           <Button type="link" size="small" onClick={() => openEdit(r)}>编辑</Button>
+          {/* 跳「设备升级记录」并按本条固件（一颗芯片一个版本）预置筛选；记录表只有四代机走 MQTT 推送才有数据 */}
+          <Button
+            type="link"
+            size="small"
+            data-testid={`firmware.viewRecords-${r.id}`}
+            onClick={() => {
+              setOtaRecordPreset({ firmwareId: r.id, targetVersion: r.version, chip: r.chip, deviceModel: r.model });
+              navigateTo('pcOtaRecord');
+            }}
+          >
+            查看升级详情
+          </Button>
         </Space>
       ),
     },
@@ -303,7 +320,7 @@ export default function PcFirmwareUpgradePage() {
         loading={loading}
         columns={columns}
         dataSource={list}
-        scroll={{ x: 1200 }}
+        scroll={{ x: 860 }}
         pagination={{
           current: pageNum,
           pageSize,

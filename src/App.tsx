@@ -11,9 +11,13 @@ import { PcDeviceListPage } from './pages/PcDeviceListPage';
 import { PcDyeRecordPage } from './pages/PcDyeRecordPage';
 import { PcDyeChangePage } from './pages/PcDyeChangePage';
 import { PcDyeBedRecordPage } from './pages/PcDyeBedRecordPage';
+import { PcDrainConfigPage } from './pages/PcDrainConfigPage';
 import PcFirmwareUpgradePage from './pages/PcFirmwareUpgradePage';
+import { PcOtaRecordPage } from './pages/PcOtaRecordPage';
 import { AppDyeDevicePage } from './pages/AppDyeDevicePage';
 import { AppWashbedPage } from './pages/AppWashbedPage';
+import { AppQueuedCallPage } from './pages/AppQueuedCallPage';
+import { MiniQueuedAddPage } from './pages/MiniQueuedAddPage';
 import { AppDyeColorPage } from './pages/AppDyeColorPage';
 import { bindNavigate } from './nav';
 
@@ -43,8 +47,12 @@ const PAGES = [
   { key: 'pcDyeChange', client: 'pc', label: '换料记录', Comp: PcDyeChangePage },
   { key: 'pcDyeBedRecord', client: 'pc', label: '洗头记录', Comp: PcDyeBedRecordPage },
   { key: 'pcFirmwareUpgrade', client: 'pc', label: '固件升级管理', Comp: PcFirmwareUpgradePage },
+  { key: 'pcOtaRecord', client: 'pc', label: '设备升级记录', Comp: PcOtaRecordPage },
+  { key: 'pcDrainConfig', client: 'pc', label: '排水配置', Comp: PcDrainConfigPage },
   { key: 'appDyeDevice', client: 'app', label: '智染设备', Comp: AppDyeDevicePage },
   { key: 'appWashbed', client: 'app', label: '洗头床控制', Comp: AppWashbedPage },
+  { key: 'appQueuedCall', client: 'app', label: '排队叫号', Comp: AppQueuedCallPage },
+  { key: 'miniQueuedAdd', client: 'mini', label: '取号', Comp: MiniQueuedAddPage },
   // 下料页不出菜单：从「智染设备」页点「去下料」进入（label 跳转对 hidden 页有效，见 nav.ts）
   { key: 'appDyeColor', client: 'app', label: '下料(App)', Comp: AppDyeColorPage, hidden: true },
   // 框架自检页：脚手架连通性验证用，平时收起（__t.nav('框架自检') 可进）

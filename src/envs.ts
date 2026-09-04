@@ -16,8 +16,8 @@
  *  - /franchise/apiCraftsman、/franchise/apiUnified → 网关根路径 '（必须比 /franchise 更长以抢先匹配）
  *  - /franchise（老控制器） → '/mgt'
  *
- * 注：dye-service 的控制面板走 iframe 直连（见 pages/ControlPanelPage.tsx），不经 vite proxy，
- * 所以这里不需要 /dye 的 serviceOverride。
+ * 注：dye-service 的控制面板走 iframe 直连（见 pages/ControlPanelPage.tsx），不经 vite proxy；
+ * local 环境的 /dye API 单独 override 直连本地 20016（见 local 条目注释），其他环境仍走各自网关。
  */
 export const ENV_PRESETS = [
   {
@@ -28,6 +28,9 @@ export const ENV_PRESETS = [
     target: 'http://localhost:20000', // 本地网关
     pathPrefix: '',
     serviceOverrides: [
+      // dye 接口直连本地 dye-service：本地网关按 Nacos 负载均衡会把请求打到 dev 的 pod，
+      // 本地新加的接口在那边是 404（2026-09-04 联调踩过）；dye 控制器路径自带 /dye 前缀，pathPrefix 空
+      { prefix: '/dye', target: 'http://localhost:20016', pathPrefix: '' },
       { prefix: '/franchise/apiCraftsman', target: 'http://localhost:20000', pathPrefix: '' },
       { prefix: '/franchise/apiUnified', target: 'http://localhost:20000', pathPrefix: '' },
       { prefix: '/franchise', target: 'http://localhost:20000', pathPrefix: '/mgt' },
