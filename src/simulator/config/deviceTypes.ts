@@ -103,7 +103,15 @@ export const DEVICE_TYPE_CONFIGS: Record<DeviceType, DeviceTypeConfig> = {
       {
         action: 'drain_on',
         label: '开启排水',
-        showWhen: (b) => b.drainStatus !== 1
+        showWhen: (b) => b.drainStatus !== 1,
+        params: [
+          {
+            name: 'timeoutMinutes',
+            label: '超时关闭(分钟,0=不关)',
+            type: 'number',
+            defaultValue: 30
+          }
+        ]
       },
       {
         action: 'drain_off',

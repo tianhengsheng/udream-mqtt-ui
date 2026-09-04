@@ -5,10 +5,6 @@ function randFloat(min: number, max: number, decimals = 1): number {
   return parseFloat((Math.random() * (max - min) + min).toFixed(decimals))
 }
 
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min
-}
-
 /**
  * 各 washMode 对应的展示步骤总数（1-based，与设备协议一致）：
  *   0 男士速洗 5 步 / 1 女士速洗 7 步 / 2 洗护 10 步 / 3 养护 12 步
@@ -25,13 +21,11 @@ const WASH_MODE_TOTAL_STEPS: Record<number, number> = {
 }
 
 /**
- * 预热排水循环模拟参数（drainStatus 为功能态口径：暂停期间仍上报 1，
- * 阀门间歇开合只通过水温 36↔38°C 震荡体现）：
- *   阀开加热 → 每拍 +1°C，到 DRAIN_PAUSE_TEMP 暂停；
- *   阀停降温 → 每拍 -1°C，降到 DRAIN_RESUME_TEMP 恢复排水，循环往复直到 drain_off / 洗头启动。
+ * 预热排水模拟参数（2026-09-04 简化）：开启后每拍 +2°C 升到 DRAIN_TARGET_TEMP 就停在那里，
+ * 不再模拟达温后的 36↔38°C 震荡；drainStatus 一直为 1，直到 drain_off / 洗头启动 / 设备超时。
+ * 达温后不再每 3s 推状态，回到常规心跳节奏。
  */
-const DRAIN_PAUSE_TEMP = 38
-const DRAIN_RESUME_TEMP = 36
+const DRAIN_TARGET_TEMP = 38
 const DRAIN_TICK_MS = 3000
 const DRAIN_TEMP_STEP = 2
 
@@ -43,15 +37,16 @@ export class WashbedHandler implements DeviceHandler {
     const { deviceId } = device.opts
     // 模拟器已移除推送式 OTA（ota/notify），不再订阅
     // 空闲水温模型（8s 间隔）：无加热源时向常温逐渐回落（1°C/拍），
-    // 到常温后仅在 ±1°C 内微抖动模拟环境波动；新协议水温为整数 °C
+    // 到常温后保持不动（不再模拟环境波动）；新协议水温为整数 °C
     const timer = setInterval(() => {
       try {
         if (device.deviceStatus !== '0') return
-        // 预热排水循环期间水温由 drainTimer 按曲线驱动，此处让位，跳过
+        // 预热排水期间水温由 drainTimer 驱动（达温后保持），此处让位，跳过
         if (device.bizData.drainStatus === 1) return
         const temp = device.bizData.waterTemperature as number
         if (Math.abs(temp - AMBIENT_TEMP) <= 2) {
-          device.bizData.waterTemperature = AMBIENT_TEMP + randInt(-1, 1)
+          if (temp === AMBIENT_TEMP) return
+          device.bizData.waterTemperature = AMBIENT_TEMP
         } else {
           device.bizData.waterTemperature = temp > AMBIENT_TEMP ? temp - 2 : temp + 2
         }
@@ -91,7 +86,7 @@ export class WashbedHandler implements DeviceHandler {
         bd.screenOn = 0
         break
       case 'drain_on':
-        this.startDrain(device, ctx)
+        this.startDrain(device, ctx, bizData.timeoutMinutes)
         break
       case 'drain_off':
         this.stopDrain(device)
@@ -111,36 +106,33 @@ export class WashbedHandler implements DeviceHandler {
     if (runTimer) clearInterval(runTimer)
     const drainTimer = device.handlerState.drainTimer as ReturnType<typeof setInterval> | undefined
     if (drainTimer) clearInterval(drainTimer)
+    const drainTimeoutTimer = device.handlerState.drainTimeoutTimer as ReturnType<typeof setTimeout> | undefined
+    if (drainTimeoutTimer) clearTimeout(drainTimeoutTimer)
   }
 
   /**
-   * 开启预热排水循环：阀开加热到 38°C 暂停、降回 36°C 恢复，往复直到 stopDrain。
-   * 幂等：已在排水中时重复 drain_on 只置位不重启定时器（避免曲线抖动）。
+   * 开启预热排水：加热到 DRAIN_TARGET_TEMP 后保持，直到 stopDrain。
+   * 幂等：已在排水中时重复 drain_on 只置位不重启升温定时器，但会按新值重挂超时。
+   *
+   * @param timeoutMinutes 协议 bizData.timeoutMinutes：设备到点自动关闭排水（分钟，[0,600]），
+   *                       0/缺省 = 永不自动关闭（缺省视同 0，便于观察云端兜底扫描是否生效）
    */
-  private startDrain(device: DeviceRef, ctx: HandlerCtx): void {
+  private startDrain(device: DeviceRef, ctx: HandlerCtx, timeoutMinutes?: unknown): void {
     const bd = device.bizData
     bd.drainStatus = 1
+    this.armDrainTimeout(device, ctx, timeoutMinutes)
     if (device.handlerState.drainTimer) return
 
     const { deviceId } = device.opts
-    // 阀门内部态：true=排水加热中 false=达温暂停降温中（不上协议，仅驱动水温曲线）。
-    // 起始按当前水温判定，避免开启瞬间水温已 ≥38 时曲线跳变
-    let valveOpen = (bd.waterTemperature as number) < DRAIN_PAUSE_TEMP
+    if ((bd.waterTemperature as number) >= DRAIN_TARGET_TEMP) return
+    // 升温定时器：到目标温度即自清，之后只靠常规心跳上报，状态保持排水中
     const timer = setInterval(() => {
       try {
-        const temp = bd.waterTemperature as number
-        if (valveOpen) {
-          bd.waterTemperature = temp + DRAIN_TEMP_STEP
-          if ((bd.waterTemperature as number) >= DRAIN_PAUSE_TEMP) {
-            bd.waterTemperature = DRAIN_PAUSE_TEMP
-            valveOpen = false
-          }
-        } else {
-          bd.waterTemperature = temp - DRAIN_TEMP_STEP
-          if ((bd.waterTemperature as number) <= DRAIN_RESUME_TEMP) {
-            bd.waterTemperature = DRAIN_RESUME_TEMP
-            valveOpen = true
-          }
+        const next = Math.min((bd.waterTemperature as number) + DRAIN_TEMP_STEP, DRAIN_TARGET_TEMP)
+        bd.waterTemperature = next
+        if (next >= DRAIN_TARGET_TEMP) {
+          clearInterval(timer)
+          device.handlerState.drainTimer = undefined
         }
         ctx.broadcastDeviceUpdate(deviceId, { bizData: { ...bd } })
         ctx.publishStatus(device, false)
@@ -149,13 +141,42 @@ export class WashbedHandler implements DeviceHandler {
     device.handlerState.drainTimer = timer
   }
 
-  /** 关闭预热排水循环（drain_off / 洗头启动 / 断连复用），幂等。 */
+  /**
+   * 设备端排水超时自关：按 timeoutMinutes 挂一次性定时器，到点 stopDrain 并立即上报状态。
+   * 重复 drain_on 以最新值为准（先清旧定时器）；0/非法值不挂。
+   */
+  private armDrainTimeout(device: DeviceRef, ctx: HandlerCtx, timeoutMinutes: unknown): void {
+    const prev = device.handlerState.drainTimeoutTimer as ReturnType<typeof setTimeout> | undefined
+    if (prev) {
+      clearTimeout(prev)
+      device.handlerState.drainTimeoutTimer = undefined
+    }
+    const minutes = Number(timeoutMinutes)
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) return
+    const { deviceId } = device.opts
+    device.handlerState.drainTimeoutTimer = setTimeout(() => {
+      try {
+        device.handlerState.drainTimeoutTimer = undefined
+        if (device.bizData.drainStatus !== 1) return
+        this.stopDrain(device)
+        ctx.broadcastDeviceUpdate(deviceId, { bizData: { ...device.bizData } })
+        ctx.publishStatus(device, false)
+      } catch { /* ignore */ }
+    }, minutes * 60 * 1000)
+  }
+
+  /** 关闭预热排水循环（drain_off / 洗头启动 / 设备超时自关 / 断连复用），幂等。 */
   private stopDrain(device: DeviceRef): void {
     device.bizData.drainStatus = 0
     const timer = device.handlerState.drainTimer as ReturnType<typeof setInterval> | undefined
     if (timer) {
       clearInterval(timer)
       device.handlerState.drainTimer = undefined
+    }
+    const timeoutTimer = device.handlerState.drainTimeoutTimer as ReturnType<typeof setTimeout> | undefined
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer)
+      device.handlerState.drainTimeoutTimer = undefined
     }
   }
 
