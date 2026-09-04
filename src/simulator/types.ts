@@ -37,6 +37,31 @@ export interface DyemachineBizData {
   pumps: DyemachinePump[]
 }
 
+/** 四代染色仪双芯片当前固件版本 */
+export interface ChipVersions {
+  p4: string
+  c5: string
+}
+
+/** OTA 升级阶段（与 ota/progress 报文 step 同值） */
+export type OtaStep = 'downloading' | 'installing' | 'rebooting' | 'success' | 'failed'
+
+/**
+ * 设备当前 OTA 升级进程（模拟器内部态，随 ota/progress 上报同步刷新）。
+ * null/缺省 = 没在升级；终态（success/failed）会保留几秒供观察后由服务端清空。
+ */
+export interface OtaState {
+  taskId: string
+  /** 芯片短码 p4 / c5 */
+  chip: string
+  /** 目标版本（指令带的 version，可能为空） */
+  version: string
+  step: OtaStep
+  /** 当前阶段内进度 0-100 */
+  progress: number
+  updatedAt: number
+}
+
 export interface LogEntry {
   id: string
   timestamp: number
@@ -52,10 +77,14 @@ export interface DeviceInstance {
   connectionStatus: ConnectionStatus
   deviceStatus: DeviceStatus
   firmwareVersion: string
+  /** 四代染色仪双芯片版本（2026-09-04 协议：status 报 p4Version/c5Version，不再报 firmwareVersion）；洗头床无 */
+  chipVersions?: ChipVersions
   osVersion: string
   sn: string
   wifiName: string
   bizData: WashbedBizData | DyemachineBizData | Record<string, unknown>
+  /** OTA 升级进程；不在升级时为 null */
+  ota?: OtaState | null
   logs: LogEntry[]
   mqttHost: string
   mqttPort: number

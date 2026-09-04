@@ -1,5 +1,5 @@
 import type { MqttClient } from 'mqtt'
-import type { AddDeviceOptions, MqttCmdResp, LogEntry, DeviceStateSnapshot } from '../types.js'
+import type { AddDeviceOptions, MqttCmdResp, LogEntry, DeviceStateSnapshot, OtaState, ChipVersions } from '../types.js'
 import type { DeviceStatus } from '../../src/simulator/types.js'
 
 /** Handler 能访问的设备最小接口（避免与 deviceManager 循环依赖） */
@@ -10,6 +10,10 @@ export interface DeviceRef {
   /** Handler 私有状态（替代原来各设备特有字段，如 currentTaskId / dispensePaused） */
   handlerState: Record<string, unknown>
   client: MqttClient | null
+  /** 当前 OTA 升级进程（由 handler 维护，随进度上报刷新；不在升级时为 null） */
+  ota: OtaState | null
+  /** 四代染色仪双芯片本地版本（ota 指令按芯片比对、success 后按芯片生效）；洗头床无 */
+  chipVersions?: ChipVersions
 }
 
 /** 设备请求（req）的响应（resp）载荷 */

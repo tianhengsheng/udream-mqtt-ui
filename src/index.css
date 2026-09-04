@@ -483,10 +483,6 @@ body {
   box-shadow: 0 0 0 1px rgba(83, 155, 245, 0.55), 0 4px 24px rgba(83, 155, 245, 0.35) !important;
 }
 
-/* 排水中：卡片透出青色水光（与运行中的蓝区分；运行态优先，两者互斥展示） */
-.sim-card--draining {
-  box-shadow: 0 0 0 1px rgba(108, 216, 208, 0.55), 0 4px 24px rgba(108, 216, 208, 0.30) !important;
-}
 
 /* 排水管道：与水温曲线同尺寸的迷你水管。排水时管内斜纹水流向右滚动（颜色随水温
    由青转暖，JS 内联），关闭时管腔置空 */
@@ -500,19 +496,52 @@ body {
   overflow: hidden;
   position: relative;
 }
-.sim-pipe__flow {
+
+/* OTA 升级中：卡片紫色描边（染色仪类型色），静态不呼吸；升级态优先 */
+.sim-card--ota {
+  box-shadow: 0 0 0 1px rgba(176, 131, 240, 0.6), 0 4px 20px rgba(176, 131, 240, 0.25) !important;
+}
+/* 终态：成功绿光 / 失败红光，静止不呼吸 */
+.sim-card--ota-success {
+  box-shadow: 0 0 0 1px rgba(63, 185, 80, 0.7), 0 4px 24px rgba(63, 185, 80, 0.35) !important;
+}
+.sim-card--ota-failed {
+  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.7), 0 4px 24px rgba(248, 81, 73, 0.35) !important;
+}
+
+/* OTA 进度条：轨道 + 平滑推进的填充 + 进行中叠一层流光 */
+.sim-ota__bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: #22272e;
+  border: 1px solid #444c56;
+  overflow: hidden;
+}
+.sim-ota__fill {
   position: absolute;
-  inset: 0;
-  animation: sim-pipe-flow 0.8s linear infinite;
+  left: 0; top: 0; bottom: 0;
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.3s;
 }
-@keyframes sim-pipe-flow {
-  from { background-position: 0 0; }
-  to   { background-position: 28px 0; }
+/* 进行中的填充不再叠流光，只保留宽度过渡 */
+.sim-ota__fill--active { opacity: 0.95; }
+/* 阶段轨迹：圆点，已完成实心、当前脉冲、未到空心 */
+.sim-ota__dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid #768390;
+  background: transparent;
+  transition: all 0.3s;
 }
+.sim-ota__dot--done { background: #b083f0; border-color: #b083f0; }
+.sim-ota__dot--now  { background: #b083f0; border-color: #b083f0; box-shadow: 0 0 0 3px rgba(176,131,240,0.25); }
+/* 重启阶段图标 / 终态：静态，不旋转不弹入（2026-09-04 动效收敛） */
+.sim-ota__spin { display: inline-block; }
+.sim-ota__done { }
 
 /* 动效对减少动态偏好的用户关闭 */
 @media (prefers-reduced-motion: reduce) {
   .sim-sn--running,
   .sim-running-tag,
-  .sim-pipe__flow { animation: none; }
+  .sim-card--ota { animation: none; }
 }

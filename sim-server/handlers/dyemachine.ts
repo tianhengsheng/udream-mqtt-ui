@@ -1,4 +1,4 @@
-import type { MqttCmdResp, MqttEventPayload } from '../types.js'
+import type { MqttCmdResp, MqttEventPayload, OtaState } from '../types.js'
 import type { DeviceHandler, DeviceRef, HandlerCtx, ReqResp } from './types.js'
 
 interface DyemachinePump {
@@ -9,6 +9,9 @@ interface DyemachinePump {
 
 /** 每罐满载初始容量（g），与对接文档 initCapacity 一致 */
 const INIT_CAPACITY = 450
+
+/** OTA 终态（success/failed）在卡片上停留的时长，之后清空升级态 */
+const OTA_DONE_HOLD_MS = 6000
 
 function randFloat(min: number, max: number, decimals = 1): number {
   return parseFloat((Math.random() * (max - min) + min).toFixed(decimals))
@@ -135,6 +138,36 @@ export class DyemachineHandler implements DeviceHandler {
           topic: '',
           message: '换料任务已取消'
         })
+        break
+      }
+      case 'ota': {
+        const taskId = bizData.taskId as string
+        const chip = String(bizData.chip ?? '')
+        const version = String(bizData.version ?? '')
+        if (!taskId || (chip !== 'p4' && chip !== 'c5')) {
+          resp.opStatus = 1
+          resp.message = 'ota 指令缺少 taskId 或 chip 非法（仅 p4/c5）'
+          return
+        }
+        // 固件地址非法：真机会直接拒绝（opStatus=2），联调用它验证云端「设备返回错误」置失败链路
+        const url = String(bizData.url ?? '')
+        if (!/^https?:\/\//i.test(url)) {
+          resp.opStatus = 2
+          resp.message = `固件地址非法: ${url || '(空)'}`
+          return
+        }
+        // 设备侧按芯片比对本地版本：一致视为无需升级，ack 成功但不上报进度
+        const localVersion = device.chipVersions?.[chip as 'p4' | 'c5']
+        if (version && localVersion && version.trim().toLowerCase() === localVersion.trim().toLowerCase()) {
+          ctx.appendLog(deviceId, {
+            timestamp: ctx.now(),
+            direction: 'info',
+            topic: '',
+            message: `OTA 版本一致(${version})，跳过升级`
+          })
+          break
+        }
+        this.startOtaSimulation(device, taskId, chip, version, ctx)
         break
       }
       case 'get_status':
@@ -480,5 +513,134 @@ export class DyemachineHandler implements DeviceHandler {
     }
 
     setTimeout(() => runStep(0), 500)
+  }
+
+  /** OTA 定时器状态（挂在 handlerState 上，按设备隔离） */
+  private otaTimers(device: DeviceRef) {
+    return device.handlerState as {
+      otaStepTimers?: Array<ReturnType<typeof setTimeout>>
+      otaClearTimer?: ReturnType<typeof setTimeout>
+    }
+  }
+
+  /** 取消排队中的进度步骤与终态清理定时器（新任务到来 / 手动打断时用） */
+  private clearOtaTimers(device: DeviceRef) {
+    const hs = this.otaTimers(device)
+    hs.otaStepTimers?.forEach(clearTimeout)
+    hs.otaStepTimers = []
+    if (hs.otaClearTimer) { clearTimeout(hs.otaClearTimer); hs.otaClearTimer = undefined }
+  }
+
+  /** 上报一条 ota/progress，并同步刷新 device.ota 广播给前端（卡片动效数据源） */
+  private reportOta(
+    device: DeviceRef,
+    ctx: HandlerCtx,
+    ota: Pick<OtaState, 'taskId' | 'chip' | 'version'>,
+    step: OtaState['step'],
+    progress: number,
+    message = ''
+  ) {
+    const { deviceId, deviceType } = device.opts
+    const progressTopic = `device/${deviceType}/ota/progress/${deviceId}`
+    device.ota = { ...ota, step, progress, updatedAt: ctx.now() }
+    ctx.broadcastDeviceUpdate(deviceId, { ota: device.ota })
+    ctx.publishMqtt(device, progressTopic, {
+      taskId: ota.taskId,
+      eventId: `${ota.taskId}-${ota.chip}-${step}`,
+      timestamp: ctx.now(),
+      [ota.chip]: { step, progress, message }
+    })
+    ctx.appendLog(deviceId, {
+      timestamp: ctx.now(),
+      direction: 'up',
+      topic: progressTopic,
+      message: JSON.stringify({ taskId: ota.taskId, chip: ota.chip, step, progress, ...(message ? { message } : {}) })
+    })
+  }
+
+  /** 终态停留 OTA_DONE_HOLD_MS 后清空升级态，卡片回到常态 */
+  private scheduleOtaClear(device: DeviceRef, ctx: HandlerCtx, taskId: string) {
+    const hs = this.otaTimers(device)
+    hs.otaClearTimer = setTimeout(() => {
+      hs.otaClearTimer = undefined
+      if (device.ota?.taskId !== taskId) return
+      device.ota = null
+      ctx.broadcastDeviceUpdate(device.opts.deviceId, { ota: null })
+    }, OTA_DONE_HOLD_MS)
+  }
+
+  /**
+   * OTA 升级过程模拟：向 ota/progress 逐阶段上报。
+   *
+   * 报文按芯片分段（p4 或 c5），taskId 原样回填云端下发的值，
+   * eventId 取 {taskId}-{chip}-{step}；success 后本地固件版本生效。
+   * 每一步同时把 device.ota 广播给前端，设备卡片据此画升级动效；
+   * 终态保留 OTA_DONE_HOLD_MS 供人眼确认后清空。步骤定时器可被 failOta 中途打断。
+   */
+  private startOtaSimulation(
+    device: DeviceRef,
+    taskId: string,
+    chip: string,
+    version: string,
+    ctx: HandlerCtx
+  ): void {
+    // 上一次升级还没收尾就来了新任务：把旧的步骤/清理定时器全部取消，免得串台
+    this.clearOtaTimers(device)
+    const hs = this.otaTimers(device)
+    const ota = { taskId, chip, version }
+
+    // 指令一到先进入 downloading 0%，卡片立刻有反馈，不用等 1.5s 后第一条进度
+    // （这一条不上报云端，云端以设备真正开始下载后的进度为准）
+    device.ota = { ...ota, step: 'downloading', progress: 0, updatedAt: ctx.now() }
+    ctx.broadcastDeviceUpdate(device.opts.deviceId, { ota: device.ota })
+
+    // 各阶段间隔 × OTA_STEP_SCALE（默认 8，全程约 76s），联调时留出观察/取消/打断的窗口；
+    // 想跑快改环境变量 OTA_STEP_SCALE=1 后 kickstart sim-server
+    const scale = Number(process.env.OTA_STEP_SCALE) > 0 ? Number(process.env.OTA_STEP_SCALE) : 8
+    const steps: Array<{ step: OtaState['step']; progress: number; delay: number }> = [
+      { step: 'downloading', progress: 30, delay: 1500 * scale },
+      { step: 'downloading', progress: 70, delay: 1500 * scale },
+      { step: 'downloading', progress: 100, delay: 1000 * scale },
+      { step: 'installing', progress: 50, delay: 1500 * scale },
+      { step: 'installing', progress: 100, delay: 1000 * scale },
+      { step: 'rebooting', progress: 100, delay: 2000 * scale },
+      { step: 'success', progress: 100, delay: 1000 * scale }
+    ]
+
+    let totalDelay = 0
+    hs.otaStepTimers = steps.map((s) => {
+      totalDelay += s.delay
+      return setTimeout(() => {
+        this.reportOta(device, ctx, ota, s.step, s.progress)
+        // 升级成功后本地版本生效，后续 status 上报即为新版本
+        if (s.step === 'success') {
+          if (version && device.chipVersions) {
+            device.chipVersions = { ...device.chipVersions, [chip]: version }
+            ctx.broadcastDeviceUpdate(device.opts.deviceId, { chipVersions: { ...device.chipVersions } })
+            ctx.publishStatus(device, true)
+          }
+          this.scheduleOtaClear(device, ctx, taskId)
+        }
+      }, totalDelay)
+    })
+  }
+
+  /**
+   * 手动打断进行中的升级并上报 failed（模拟器「模拟升级失败」按钮）。
+   * 没有进行中的升级则返回 false；本地版本保持不变。
+   */
+  failOta(device: DeviceRef, ctx: HandlerCtx, message = '模拟器手动触发升级失败'): boolean {
+    const cur = device.ota
+    if (!cur || cur.step === 'success' || cur.step === 'failed') return false
+    this.clearOtaTimers(device)
+    this.reportOta(device, ctx, cur, 'failed', cur.progress, message)
+    ctx.appendLog(device.opts.deviceId, {
+      timestamp: ctx.now(),
+      direction: 'info',
+      topic: '',
+      message: `OTA ${cur.taskId} 在 ${cur.step} ${cur.progress}% 处被手动置为失败`
+    })
+    this.scheduleOtaClear(device, ctx, cur.taskId)
+    return true
   }
 }

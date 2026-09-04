@@ -19,6 +19,7 @@ import {
 import { useDeviceStore } from '../store/useDeviceStore'
 import { getDeviceTypeConfig } from '../config/deviceTypes'
 import { ActionFormModal } from './ActionFormModal'
+import { OtaProgress, isOtaTerminal } from './OtaProgress'
 import type { DeviceInstance } from '../types'
 import type { ActionConfig } from '../config/deviceTypes'
 import {
@@ -55,54 +56,13 @@ const DEVICE_STATUS_LABEL: Record<string, string> = {
 /** 状态值里代表"在忙"的文案（statusFields.format 出来的结果） */
 const BUSY_TEXTS = ['执行中', '运行中', '进行中']
 
-/** 温度曲线固定时间窗（毫秒）：x 轴恒定表示最近这么长的一段，旧点随时间滑出左端 */
-const TEMP_WINDOW_MS = 120_000
-/** 采样保底间隔：温度不变也定期记点，让平稳段画出随时间延伸的水平线 */
-const TEMP_SAMPLE_MIN_GAP_MS = 3_000
-/** 采样点数量上限（内存兜底，远大于窗口内可能的点数） */
-const TEMP_HISTORY_MAX = 200
-
-interface TempSample { t: number; v: number }
-
 /**
- * 按水温取色：常温(≤18°C)为类型青，趋近 38°C 连续过渡到暖橙——
- * 排水管道用它上色，"水是热的"一眼可感。
+ * 按水温取色：常温(≤18°C)为类型青，趋近 38°C 连续过渡到暖橙——排水管道用它上色。
  */
 function tempColor(temp: number, alpha = 1): string {
   const t = Math.max(0, Math.min(1, (temp - 18) / 20))
   const h = Math.round(175 - 145 * t)
   return `hsla(${h}, 70%, 62%, ${alpha})`
-}
-
-/**
- * 迷你温度曲线（sparkline）：细线 + 末端亮点 + 线下淡渐变。
- * x 轴为固定时间窗（右端=最新采样时刻，左端=其前 TEMP_WINDOW_MS），点按时间戳定位，
- * 波形疏密即真实节奏；纵轴按窗口内区间自适应（上下各留 1°C 余量）。
- */
-const TempSparkline: React.FC<{ samples: TempSample[]; color: string }> = ({ samples, color }) => {
-  if (samples.length < 2) return null
-  const W = 72
-  const H = 18
-  const PAD = 2
-  const tEnd = samples[samples.length - 1].t
-  const tStart = tEnd - TEMP_WINDOW_MS
-  const pts = samples.filter((p) => p.t >= tStart)
-  if (pts.length < 2) return null
-  const vals = pts.map((p) => p.v)
-  const min = Math.min(...vals) - 1
-  const max = Math.max(...vals) + 1
-  const x = (t: number) => PAD + ((t - tStart) / TEMP_WINDOW_MS) * (W - PAD * 2)
-  const y = (v: number) => PAD + (H - PAD * 2) * (1 - (v - min) / (max - min))
-  const line = pts.map((p) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')
-  const area = `${x(pts[0].t).toFixed(1)},${H - PAD} ${line} ${x(tEnd).toFixed(1)},${H - PAD}`
-  return (
-    <svg width={W} height={H} style={{ display: 'block', opacity: 0.9 }}>
-      <polygon points={area} fill={color} opacity={0.12} />
-      <polyline points={line} fill="none" stroke={color} strokeWidth={1.2}
-        strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={x(tEnd)} cy={y(pts[pts.length - 1].v)} r={2} fill={color} />
-    </svg>
-  )
 }
 
 export const DeviceCard: React.FC<Props> = ({ device }) => {
@@ -156,6 +116,41 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
     }
   }
 
+  // 修改设备本地固件版本：OTA 指令下发时设备拿它与目标版本比对，一致就跳过升级，
+  // 所以联调重测升级要能把它调回旧版本
+  async function saveFirmwareVersion(value: string, chip?: 'p4' | 'c5') {
+    const version = value.trim()
+    const current = chip ? device.chipVersions?.[chip] : device.firmwareVersion
+    if (!version || version === current) return
+    try {
+      const res = await fetch(`/simapi/devices/${device.deviceId}/firmware`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chip ? { version, chip } : { version })
+      })
+      const data = await res.json()
+      if (data.success) {
+        message.success(`本地${chip ? ' ' + chip.toUpperCase() : ''}固件版本已改为 ${version}`)
+      } else {
+        message.error(data.message || '修改失败')
+      }
+    } catch {
+      message.error('修改失败')
+    }
+  }
+
+  // 模拟升级失败：打断 sim-server 里排队的进度步骤，立刻上报 failed（本地版本不变）
+  async function failOta() {
+    try {
+      const res = await fetch(`/simapi/devices/${device.deviceId}/ota/fail`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success) message.warning('已上报 OTA 升级失败')
+      else message.error(data.message || '操作失败')
+    } catch {
+      message.error('操作失败')
+    }
+  }
+
   function copyDeviceId() {
     navigator.clipboard.writeText(device.deviceId)
     message.success('已复制设备 ID')
@@ -182,22 +177,7 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
 
   const bizData = device.bizData as Record<string, unknown>
 
-  // 水温历史采样（带时间戳）：温度变化立即记点，平稳期按保底间隔记点，
-  // 供状态区固定时间窗曲线展示；设备卡卸载即随之丢弃
-  const tempHistory = useRef<TempSample[]>([])
   const curTemp = bizData.waterTemperature
-  if (typeof curTemp === 'number') {
-    const hist = tempHistory.current
-    const last = hist[hist.length - 1]
-    const now = Date.now()
-    if (!last || last.v !== curTemp || now - last.t >= TEMP_SAMPLE_MIN_GAP_MS) {
-      hist.push({ t: now, v: curTemp })
-      while (hist.length > TEMP_HISTORY_MAX
-          || (hist.length > 2 && hist[0].t < now - TEMP_WINDOW_MS - TEMP_SAMPLE_MIN_GAP_MS)) {
-        hist.shift()
-      }
-    }
-  }
 
   // 是否在跑：deviceStatus=1（运行中）或任一 *State 字段不是 IDLE
   // （染色仪 makeState/calibState/refillState、洗头床 runState 等一并覆盖，不写死字段名）
@@ -212,6 +192,23 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
   const isDraining =
     device.connectionStatus === 'connected' && bizData.drainStatus === 1
 
+  // OTA 升级中：sim-server 随每条 ota/progress 上报广播 device.ota，卡片据此播动效；
+  // 终态（success/failed）会停留几秒再由服务端清空。升级态光晕优先于运行/排水
+  const ota = device.ota ?? null
+  const otaActive = !!ota && !isOtaTerminal(ota.step)
+  const otaDoneClass = ota && isOtaTerminal(ota.step)
+    ? (ota.step === 'success' ? 'sim-card--ota-success' : 'sim-card--ota-failed')
+    : null
+  // 升级前版本：success 那一帧本地版本已被服务端刷成新版，所以在过程中记一下旧值（按被升级的芯片取）
+  const otaFromVersion = useRef<string>('')
+  if (otaActive && ota) {
+    otaFromVersion.current = device.chipVersions?.[ota.chip as 'p4' | 'c5'] ?? device.firmwareVersion
+  }
+  // 动效收敛（2026-09-04）：排水不再给卡片加光晕，只有运行中/OTA 才变描边
+  const cardClass = otaActive
+    ? 'sim-card--ota'
+    : otaDoneClass ?? (isRunning ? 'sim-card--running' : undefined)
+
   // 设备类型主题色（深色版统一在 ../theme 里维护）：多台设备并排时靠颜色区分类型
   const theme = getTypeTheme(device.deviceType)
   const isOffline = device.connectionStatus !== 'connected'
@@ -220,7 +217,7 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
     <>
       <Card
         size="small"
-        className={isRunning ? 'sim-card--running' : isDraining ? 'sim-card--draining' : undefined}
+        className={cardClass}
         style={{
           position: 'relative',
           overflow: 'hidden',
@@ -263,16 +260,20 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
             </Space>
             <Tag
               color={
-                isRunning
+                otaActive
+                  ? 'purple'
+                  : isRunning
                   ? 'processing'
                   : device.deviceStatus === '2'
                   ? 'warning'
                   : 'default'
               }
-              className={isRunning ? 'sim-running-tag' : undefined}
+              className={otaActive || isRunning ? 'sim-running-tag' : undefined}
               style={{ margin: 0 }}
             >
-              {isRunning
+              {otaActive
+                ? '升级中'
+                : isRunning
                 ? DEVICE_STATUS_LABEL['1']
                 : DEVICE_STATUS_LABEL[device.deviceStatus] ?? device.deviceStatus}
             </Tag>
@@ -309,11 +310,57 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
               </Tooltip>
             )}
           </div>
+          {/* 固件版本：OTA 比对依据，点笔可改（改完设备立刻上报一次 status）。
+              四代染色仪按芯片各一份（status 报 p4Version/c5Version），洗头床仍是整机一份 */}
+          <div style={{ marginTop: 2, display: 'flex', gap: 10, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+            {device.chipVersions ? (
+              (['p4', 'c5'] as const).map((chip) => (
+                <Tooltip key={chip} title={`本地 ${chip.toUpperCase()} 固件版本。收到该芯片 ota 指令时与目标版本比对，一致则跳过；点击可改，用于重测升级`}>
+                  <Text style={{ fontSize: 11, color: TEXT_SECONDARY }}>
+                    <span style={{ color: TEXT_MUTED, marginRight: 3 }}>{chip.toUpperCase()}</span>
+                    <Text
+                      style={{ fontSize: 11, color: TEXT_SECONDARY }}
+                      editable={{
+                        onChange: (v) => saveFirmwareVersion(v, chip),
+                        tooltip: `修改 ${chip.toUpperCase()} 本地版本`,
+                        maxLength: 32
+                      }}
+                    >
+                      {device.chipVersions?.[chip] || '-'}
+                    </Text>
+                  </Text>
+                </Tooltip>
+              ))
+            ) : (
+              <Tooltip title="设备本地固件版本。收到 ota 指令时与目标版本比对，一致则跳过升级；点击可改，用于重测升级">
+                <Text
+                  style={{ fontSize: 11, color: TEXT_SECONDARY }}
+                  editable={{
+                    onChange: (v) => saveFirmwareVersion(v),
+                    tooltip: '修改本地固件版本',
+                    maxLength: 32
+                  }}
+                >
+                  {device.firmwareVersion || '-'}
+                </Text>
+              </Tooltip>
+            )}
+          </div>
           <div>
             <Text style={{ fontSize: 11, color: TEXT_MUTED }}>
               {STATUS_LABEL[device.connectionStatus]} · {device.mqttHost}:{device.mqttPort}
             </Text>
           </div>
+          {/* OTA 升级进程（收到 ota 指令到终态停留结束之间可见） */}
+          {ota && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <OtaProgress
+                ota={ota}
+                deviceType={device.deviceType}
+                fromVersion={otaFromVersion.current}
+              />
+            </div>
+          )}
         </div>
 
         {/* 状态信息 */}
@@ -345,9 +392,6 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
                   <Text style={{ fontSize: 12, color: TEXT_SECONDARY }}>
                     {field.label}
                   </Text>
-                  {field.key === 'waterTemperature' && (
-                    <TempSparkline samples={[...tempHistory.current]} color={theme.main} />
-                  )}
                   <span
                     style={{
                       fontSize: 12,
@@ -378,22 +422,13 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
                     {row}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                       <Text style={{ fontSize: 12, color: TEXT_SECONDARY }}>排水</Text>
+                      {/* 排水管道：排水中按水温上色填满，静态无流动动画 */}
                       <div
                         className="sim-pipe"
                         style={isDraining && typeof curTemp === 'number'
-                          ? { borderColor: tempColor(curTemp, 0.45) }
+                          ? { borderColor: tempColor(curTemp, 0.45), background: tempColor(curTemp, 0.5) }
                           : undefined}
-                      >
-                        {isDraining && typeof curTemp === 'number' && (
-                          <div
-                            className="sim-pipe__flow"
-                            style={{
-                              background: `repeating-linear-gradient(105deg, ${tempColor(curTemp, 0.18)} 0 7px, ${tempColor(curTemp, 0.6)} 7px 14px)`,
-                              backgroundSize: '200% 100%'
-                            }}
-                          />
-                        )}
-                      </div>
+                      />
                       <span style={{
                         fontSize: 12,
                         fontWeight: isDraining ? 600 : 500,
@@ -468,6 +503,20 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
                     <Button size="small" data-testid={`sim.get-ota-info-${device.deviceId}`}
                       onClick={() => triggerReq('get_ota_info', { targets: ['esp32c5', 'esp32p4'] })}>
                       拉取OTA
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={otaActive
+                    ? '打断当前升级，设备立即上报 failed（本地版本不变）'
+                    : '先从控制面板/PC 推一条 OTA 指令，升级进行中时可点'}>
+                    <Button
+                      size="small"
+                      danger
+                      ghost={otaActive}
+                      disabled={!otaActive}
+                      data-testid={`sim.ota-fail-${device.deviceId}`}
+                      onClick={failOta}
+                    >
+                      模拟升级失败
                     </Button>
                   </Tooltip>
                 </>

@@ -1,6 +1,6 @@
-import type { DeviceType, ConnectionStatus, DeviceStatus, LogEntry } from '../src/simulator/types.js'
+import type { DeviceType, ConnectionStatus, DeviceStatus, LogEntry, OtaState, ChipVersions } from '../src/simulator/types.js'
 
-export type { DeviceType, ConnectionStatus, DeviceStatus, LogEntry }
+export type { DeviceType, ConnectionStatus, DeviceStatus, LogEntry, OtaState, ChipVersions }
 
 export interface CertBundle {
   ca: string    // PEM 内容
@@ -26,10 +26,14 @@ export interface DeviceStateSnapshot {
   connectionStatus: ConnectionStatus
   deviceStatus: DeviceStatus
   firmwareVersion: string
+  /** 四代染色仪双芯片版本；洗头床无 */
+  chipVersions?: ChipVersions
   osVersion: string
   sn: string
   wifiName: string
   bizData: Record<string, unknown>
+  /** OTA 升级进程；不在升级时为 null */
+  ota: OtaState | null
   mqttHost: string
   mqttPort: number
 }

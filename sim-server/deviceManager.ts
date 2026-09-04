@@ -11,6 +11,7 @@ import type {
 } from './types.js'
 import type { DeviceRef, HandlerCtx, ReqResp } from './handlers/types.js'
 import { deviceHandlers } from './handlers/index.js'
+import type { DyemachineHandler } from './handlers/dyemachine.js'
 
 // 设备内部状态（实现 DeviceRef 接口）
 interface ManagedDevice extends DeviceRef {
@@ -143,11 +144,14 @@ class DeviceManager {
       deviceStatus: '0',
       bizData: defaultBizData,
       firmwareVersion: 'v1.2.3',
+      // 四代染色仪：双芯片各自版本（status 按新协议报 p4Version/c5Version）
+      chipVersions: opts.deviceType === 'dyemachine' ? { p4: 'v1.2.3', c5: 'v1.1.2' } : undefined,
       osVersion: 'Android 11',
       // 自定义 SN 优先；不填则取 deviceId 末段（split 取 serial，避免 5 位序列号把连字符切进来）
       sn: opts.sn && opts.sn.trim() ? opts.sn.trim() : (opts.deviceId.split('-').pop() ?? opts.deviceId),
       wifiName: 'SalonWiFi',
       handlerState: {},
+      ota: null,
       cmdCache: new Map(),
       statusTimer: null
     }
@@ -408,7 +412,10 @@ class DeviceManager {
       deviceType,
       timestamp: now(),
       status: device.deviceStatus,
-      firmwareVersion: managed.firmwareVersion,
+      // 2026-09-04 协议：四代染色仪按芯片报 p4Version/c5Version，不再报 firmwareVersion；洗头床照旧
+      ...(managed.chipVersions
+        ? { p4Version: managed.chipVersions.p4, c5Version: managed.chipVersions.c5 }
+        : { firmwareVersion: managed.firmwareVersion }),
       osVersion: managed.osVersion,
       sn: managed.sn,
       wifiName: managed.wifiName,
@@ -466,6 +473,44 @@ class DeviceManager {
   }
 
   // ---- 手动触发 action（来自前端 REST API）----
+  /**
+   * 修改设备本地固件版本。
+   *
+   * OTA 指令下发时设备要拿它和目标版本比对（一致则跳过升级），联调时需要能手工调回旧版本重测。
+   * 改完立即上报一次 status，云端与 UI 同步看到新版本。
+   */
+  setFirmwareVersion(deviceId: string, version: string, chip?: 'p4' | 'c5') {
+    const managed = this.devices.get(deviceId)
+    if (!managed) throw new Error(`设备 ${deviceId} 不存在`)
+    const trimmed = version.trim()
+    if (!trimmed) throw new Error('版本号不能为空')
+
+    if (chip) {
+      // 四代染色仪按芯片改
+      if (!managed.chipVersions) throw new Error('该设备不区分芯片版本')
+      managed.chipVersions = { ...managed.chipVersions, [chip]: trimmed }
+      this.appendLog(deviceId, {
+        timestamp: now(),
+        direction: 'info',
+        topic: '',
+        message: `本地 ${chip.toUpperCase()} 固件版本已改为 ${trimmed}`
+      })
+      this.broadcastDeviceUpdate(deviceId, { chipVersions: { ...managed.chipVersions } })
+    } else {
+      managed.firmwareVersion = trimmed
+      this.appendLog(deviceId, {
+        timestamp: now(),
+        direction: 'info',
+        topic: '',
+        message: `本地固件版本已改为 ${trimmed}`
+      })
+      this.broadcastDeviceUpdate(deviceId, { firmwareVersion: trimmed })
+    }
+    if (managed.connectionStatus === 'connected') {
+      this.publishStatus(managed, true)
+    }
+  }
+
   triggerAction(deviceId: string, action: string, bizData: Record<string, unknown>) {
     const managed = this.devices.get(deviceId)
     if (!managed) throw new Error(`设备 ${deviceId} 不存在`)
@@ -550,6 +595,15 @@ class DeviceManager {
   }
 
   // ---- 触发染色仪告警（测试用）----
+  /** 模拟 OTA 升级失败：打断进行中的升级并上报 failed（仅四代染色仪） */
+  failOta(deviceId: string): { success: boolean; message?: string } {
+    const managed = this.devices.get(deviceId)
+    if (!managed) return { success: false, message: '设备不存在' }
+    if (managed.opts.deviceType !== 'dyemachine') return { success: false, message: '仅染色仪支持 OTA' }
+    const ok = (deviceHandlers.dyemachine as DyemachineHandler).failOta(managed, this.ctx)
+    return ok ? { success: true } : { success: false, message: '当前没有进行中的 OTA 升级' }
+  }
+
   triggerDispenseWarn(deviceId: string, warnCode: number) {
     const managed = this.devices.get(deviceId)
     if (!managed || managed.opts.deviceType !== 'dyemachine') return
@@ -594,10 +648,12 @@ class DeviceManager {
       connectionStatus: managed.connectionStatus,
       deviceStatus: managed.deviceStatus,
       firmwareVersion: managed.firmwareVersion,
+      chipVersions: managed.chipVersions ? { ...managed.chipVersions } : undefined,
       osVersion: managed.osVersion,
       sn: managed.sn,
       wifiName: managed.wifiName,
       bizData: { ...managed.bizData },
+      ota: managed.ota,
       mqttHost: managed.opts.mqttHost,
       mqttPort: managed.opts.mqttPort
     }

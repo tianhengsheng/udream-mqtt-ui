@@ -112,11 +112,34 @@ app.post('/api/devices/:deviceId/req', (req, res) => {
   }
 })
 
+/** 修改设备本地固件版本（OTA 比对用，联调时可调回旧版本重测升级） */
+app.post('/api/devices/:deviceId/firmware', (req, res) => {
+  const { version, chip } = req.body as { version?: string; chip?: 'p4' | 'c5' }
+  if (!version || !version.trim()) {
+    res.status(400).json({ success: false, message: '缺少 version 参数' })
+    return
+  }
+  try {
+    // 四代染色仪带 chip 按芯片改（p4/c5）；不带则改旧的整机 firmwareVersion（洗头床）
+    deviceManager.setFirmwareVersion(req.params.deviceId, version, chip)
+    res.json({ success: true })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    res.status(400).json({ success: false, message: msg })
+  }
+})
+
 /** 触发染色仪告警（测试用） */
 app.post('/api/devices/:deviceId/warn', (req, res) => {
   const { warnCode } = req.body as { warnCode: number }
   deviceManager.triggerDispenseWarn(req.params.deviceId, warnCode ?? 104)
   res.json({ success: true })
+})
+
+/** 模拟 OTA 升级失败：打断进行中的升级，向 ota/progress 上报 failed */
+app.post('/api/devices/:deviceId/ota/fail', (req, res) => {
+  const r = deviceManager.failOta(req.params.deviceId)
+  res.status(r.success ? 200 : 400).json(r)
 })
 
 /** 上传证书（multipart form: ca, cert, key 三个文件字段） */
