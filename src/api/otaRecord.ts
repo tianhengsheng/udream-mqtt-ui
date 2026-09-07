@@ -74,26 +74,23 @@ export interface OtaRecordQuery {
   chip?: string;
   status?: number;
   deviceModel?: number;
-  /** 固件包 id：从固件管理「查看升级详情」跳来时带上，精确到该芯片该版本 */
+  /** 固件包 id（后端保留的精确过滤项，页面当前不传） */
   firmwareId?: string | number;
-  /** 批次 id：从设备列表状态条「查看记录」跳来时带上 */
+  /** 批次 id（后端保留，页面当前不传） */
   batchId?: string;
-  /** 只看每台设备每颗芯片最新一条（后端按 id 最大取），默认全部历史 */
-  latestOnly?: boolean;
   /** 推送时间区间，yyyy-MM-dd HH:mm:ss（后端 LocalDateTime） */
   startTime?: string;
   endTime?: string;
 }
 
 /**
- * 从「固件升级管理」操作栏「查看升级详情」跳过来时的预置筛选（按固件 id 精确到一颗芯片一个版本）。
+ * 跳到「设备升级记录」时的预置筛选：固件管理「查看升级详情」/ 设备列表状态条「查看记录」都只带
+ * 版本 + 芯片 + 设备类型 回填到表单（不带 firmwareId / batchId 做隐藏过滤，用户进来可随意改条件继续查）。
  * 跳页只是切菜单、没有路由参数，所以用模块级变量交接：跳前 set，记录页挂载时 take（取一次即清）。
  */
 export interface OtaRecordPreset {
-  /** 设备列表状态条「查看记录」带入：按批次筛 */
-  batchId?: string;
-  firmwareId?: string | number;
   targetVersion?: string;
+  /** 芯片长码（esp32p4 / esp32c5），只有四代机固件有 */
   chip?: string;
   deviceModel?: number;
 }

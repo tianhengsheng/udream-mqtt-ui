@@ -241,13 +241,13 @@ export default function PcFirmwareUpgradePage() {
             </Button>
           </Popconfirm>
           <Button type="link" size="small" onClick={() => openEdit(r)}>编辑</Button>
-          {/* 跳「设备升级记录」并按本条固件（一颗芯片一个版本）预置筛选；记录表只有四代机走 MQTT 推送才有数据 */}
+          {/* 跳「设备升级记录」并把本条固件的 版本/芯片/设备类型 回填到筛选表单；记录表只有四代机走 MQTT 推送才有数据 */}
           <Button
             type="link"
             size="small"
             data-testid={`firmware.viewRecords-${r.id}`}
             onClick={() => {
-              setOtaRecordPreset({ firmwareId: r.id, targetVersion: r.version, chip: r.chip, deviceModel: r.model });
+              setOtaRecordPreset({ targetVersion: r.version, chip: r.chip, deviceModel: r.model });
               navigateTo('pcOtaRecord');
             }}
           >

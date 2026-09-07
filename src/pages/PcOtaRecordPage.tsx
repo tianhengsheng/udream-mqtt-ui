@@ -8,7 +8,7 @@
  * 页面保持**浅色**（模拟器那套深色 theme.ts 不要往这里套）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, DatePicker, Form, Input, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Card, DatePicker, Form, Input, Select, Space, Table, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
@@ -58,16 +58,12 @@ function toQuery(v: FilterValues): OtaRecordQuery {
 
 export function PcOtaRecordPage() {
   const [form] = Form.useForm<FilterValues>();
-  // 固件管理「查看升级详情」跳来时的预置筛选：版本/型号回填表单，firmwareId 单独挂着（表单里没有这个项）
+  // 固件管理「查看升级详情」/ 状态条「查看记录」跳来时的预置筛选：版本/芯片/型号回填表单，就是普通的表单条件
   const [preset] = useState<OtaRecordPreset | null>(() => takeOtaRecordPreset());
-  const [firmwareFilter, setFirmwareFilter] = useState<OtaRecordPreset | null>(
-    () => (preset?.firmwareId != null || preset?.batchId ? preset : null),
-  );
   const [query, setQuery] = useState<OtaRecordQuery>(() => (preset ? {
-    batchId: preset.batchId,
-    firmwareId: preset.firmwareId,
-    targetVersion: preset.firmwareId != null ? undefined : preset.targetVersion,
-    chip: preset.firmwareId != null ? undefined : preset.chip,
+    targetVersion: preset.targetVersion,
+    // 芯片只对四代机有意义
+    chip: (preset.deviceModel ?? DEFAULT_MODEL) === DEFAULT_MODEL ? preset.chip : undefined,
     deviceModel: preset.deviceModel ?? DEFAULT_MODEL,
   } : { deviceModel: DEFAULT_MODEL }));
   const [pageNum, setPageNum] = useState(1);
@@ -80,15 +76,13 @@ export function PcOtaRecordPage() {
   // 芯片筛选只对四代机有意义（其他型号不分芯片）：设备类型不是四代机时隐藏并清掉芯片值
   const modelValue = Form.useWatch('deviceModel', form);
   const showChip = modelValue === DEFAULT_MODEL;
-  // 「只看最新」：每台设备每颗芯片折叠成最新一条，默认关（原型是逐次记录）；切换立即生效并回第一页
-  const [latestOnly, setLatestOnly] = useState(false);
   const seqRef = useRef(0);
 
   const load = useCallback(async () => {
     const seq = ++seqRef.current;
     setLoading(true);
     try {
-      const { list, total: t } = await fetchOtaRecordPage({ ...query, latestOnly: latestOnly || undefined, pageNum, pageSize });
+      const { list, total: t } = await fetchOtaRecordPage({ ...query, pageNum, pageSize });
       if (seq !== seqRef.current) return;
       setRows(list);
       setTotal(t);
@@ -99,7 +93,7 @@ export function PcOtaRecordPage() {
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
-  }, [query, pageNum, pageSize, latestOnly]);
+  }, [query, pageNum, pageSize]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -120,29 +114,17 @@ export function PcOtaRecordPage() {
 
   const onSearch = () => {
     setPageNum(1);
-    // 固件筛选还挂着时，版本以固件为准（比表单里的版本更精确到芯片）
-    const q = toQuery(form.getFieldsValue());
-    setQuery(firmwareFilter
-      ? { ...q, targetVersion: undefined, firmwareId: firmwareFilter.firmwareId, batchId: firmwareFilter.batchId }
-      : q);
+    setQuery(toQuery(form.getFieldsValue()));
   };
   const onReset = () => {
     form.resetFields();
-    setFirmwareFilter(null);
-    setLatestOnly(false);
     setPageNum(1);
     setQuery({ deviceModel: DEFAULT_MODEL });
-  };
-  /** 去掉固件精确筛选，退化成按表单里的版本号筛 */
-  const clearFirmwareFilter = () => {
-    setFirmwareFilter(null);
-    setPageNum(1);
-    setQuery(toQuery(form.getFieldsValue()));
   };
   const onExport = async () => {
     setExporting(true);
     try {
-      const r = await exportOtaRecord({ ...query, latestOnly: latestOnly || undefined });
+      const r = await exportOtaRecord(query);
       if (r.downloaded) message.success('导出文件已下载');
       else message.info(r.msg || '导出任务已提交');
     } catch {
@@ -261,29 +243,6 @@ export function PcOtaRecordPage() {
           <Button data-testid="otaRecord.search" type="primary" icon={<SearchOutlined />} onClick={onSearch}>查询</Button>
           <Button data-testid="otaRecord.reset" icon={<ReloadOutlined />} onClick={onReset}>重置</Button>
           <Button data-testid="otaRecord.export" loading={exporting} onClick={onExport}>导出</Button>
-          <Tooltip title="开启后每台设备每颗芯片只显示最近一次升级，用来看当前状态；关闭看全部历史记录">
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Switch
-                size="small"
-                data-testid="otaRecord.latestOnly"
-                checked={latestOnly}
-                onChange={(v) => { setLatestOnly(v); setPageNum(1); }}
-              />
-              只看最新
-            </span>
-          </Tooltip>
-          {firmwareFilter && (
-            <Tag
-              data-testid="otaRecord.firmwareFilter"
-              color="blue"
-              closable
-              onClose={(e) => { e.preventDefault(); clearFirmwareFilter(); }}
-              style={{ margin: 0 }}
-            >
-              {firmwareFilter.batchId ? '当前批次：' : '当前固件：'}{firmwareFilter.targetVersion}
-              {firmwareFilter.chip ? ` · ${CHIP_LABEL[firmwareFilter.chip] ?? firmwareFilter.chip}` : ''}
-            </Tag>
-          )}
         </Space>
       </Card>
 

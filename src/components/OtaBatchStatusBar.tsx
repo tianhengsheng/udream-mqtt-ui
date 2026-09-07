@@ -69,9 +69,8 @@ export function OtaBatchStatusBar({ refreshSeq = 0, onActiveChange }: Props) {
   };
 
   const viewRecords = () => {
+    // 只回填 版本/芯片/设备类型 到记录页表单，不按 batchId 隐藏过滤
     setOtaRecordPreset({
-      batchId: batch.batchId ?? undefined,
-      firmwareId: batch.firmwareId,
       targetVersion: batch.targetVersion,
       chip: batch.chip,
       deviceModel: 4,
