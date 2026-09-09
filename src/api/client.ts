@@ -5,16 +5,20 @@ import { useSession, SLOT_KEY, type Account } from '../store/useSession';
 // 给请求 config 加四个内部标记：
 //  _skipReauth：登录请求自身带，避免续登逻辑对它生效（防自我递归/死锁）。
 //  _retried：已为续登重试过一次，防 401→续登→又 401 的无限循环。
-//  _silent：接口预期可能未实现/允许失败（如 MALL-05 价格试算，调用方自带本地兜底），失败时不弹全局错误提示。
+//  _silent：接口预期可能未实现/允许失败（如 MALL-05 价格试算，调用方自带本地兜底），失败时不弹全局错误提示；
+//    遇到 token 过期码 / 401 / 403 也不续登、不弹「重新登录」（借用身份过期不该打断当前身份）。
 //  _useStaffToken：网关对小程序顾客 token 是「全拦 + 白名单放行」（见 common-at PlatformTypeEnum.APPLETS），
 //    非白名单前缀会报 50140；App/PC 端 token 无此限制。个别接口（模拟支付等调试专用）不管当前身份是谁都
 //    借用 App/PC token 调，避免踩这个限制。
+//  _useMiniToken：反向借用小程序顾客 token。个别 base 接口 api_auth 只放行顾客端（pass_token=[2]，如
+//    getStoreCraftsman 查库读手艺人工作状态），App/PC token 调会 50140；未登录小程序时不改身份，由调用方自行兜底。
 declare module 'axios' {
   export interface AxiosRequestConfig {
     _skipReauth?: boolean;
     _retried?: boolean;
     _silent?: boolean;
     _useStaffToken?: boolean;
+    _useMiniToken?: boolean;
   }
 }
 
@@ -101,6 +105,9 @@ http.interceptors.request.use(async (cfg) => {
   if (cfg._useStaffToken) {
     acc = s.appUser() || s.pcUser(); // 借用 App/PC token（该权限档不受小程序端白名单限制，见文件头注释）
   }
+  if (cfg._useMiniToken && s.miniUser()) {
+    acc = s.miniUser(); // 借用小程序顾客 token（仅顾客端放行的接口，见文件头注释）
+  }
   const token = acc?.token || '';
   if (token && cfg.headers) {
     cfg.headers.set('att', token);
@@ -133,6 +140,12 @@ http.interceptors.response.use(
       if (c !== undefined && !ok) {
         // token 过期/鉴权失败 → 静默续登并重试
         if (TOKEN_EXPIRY_CODES.has(String(c))) {
+          // _silent 的尽力而为请求（如借小程序 token 查库）：借用身份过期不该弹「重新登录」打断当前身份，直接失败交给调用方兜底
+          if (res.config._silent) {
+            // eslint-disable-next-line no-console
+            console.debug('[resp.token-expired(silent)]', res.config.url, c);
+            return Promise.reject(body);
+          }
           const retried = await reloginAndRetry(res.config);
           if (retried) return retried;
           showTokenExpired(res.config?.url, undefined, body.retInfo || body.msg);
@@ -153,6 +166,10 @@ http.interceptors.response.use(
     if (err?.config?._silent) console.debug('[resp.err(silent)]', err?.config?.url, status);
     // eslint-disable-next-line no-console
     else console.error('[resp.err]', err?.config?.url, status, err?.response?.data);
+    if ((status === 401 || status === 403) && err?.config?._silent) {
+      // 同上：_silent 请求鉴权失败不弹窗、不续登
+      return Promise.reject(err);
+    }
     if (status === 401 || status === 403) {
       // 401 优先尝试静默续登重试（403 多为无权限，续登也无效，但统一走一次：无凭据/已重试会直接返回 null）
       if (status === 401) {

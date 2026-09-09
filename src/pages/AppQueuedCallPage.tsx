@@ -57,6 +57,8 @@ export function AppQueuedCallPage() {
 
   /** 手艺人工作状态（非 1/4/5 时顾客取号会被后端直接拒掉） */
   const [activeStatus, setActiveStatus] = useState<number | undefined>();
+  /** 工作状态来源：db 与取号校验同源；cache 为 Redis 缓存兜底，可能与 DB 不一致 */
+  const [statusSource, setStatusSource] = useState<'db' | 'cache' | undefined>();
   const [statusBusy, setStatusBusy] = useState(false);
 
   /** 拉排队列表（手动触发；注意后端可能顺带自动叫号，见文件头） */
@@ -99,7 +101,9 @@ export function AppQueuedCallPage() {
   const loadActiveStatus = useCallback(async () => {
     if (!storeId || !craftsmanId) return;
     try {
-      setActiveStatus(await getActiveStatus(storeId, craftsmanId));
+      const r = await getActiveStatus(storeId, craftsmanId);
+      setActiveStatus(r.activeStatus);
+      setStatusSource(r.source);
     } catch (e) {
       message.error(`工作状态读取失败：${errText(e)}`);
     }
@@ -296,6 +300,17 @@ export function AppQueuedCallPage() {
                   <Tag color={activeStatus != null && QUEUED_ALLOW_ACTIVE_STATUS.includes(activeStatus) ? 'green' : 'red'}>
                     {activeStatus == null ? '-' : (ACTIVE_STATUS_LABEL[activeStatus] ?? activeStatus)}
                   </Tag>
+                  {statusSource && (
+                    <Tag
+                      color={statusSource === 'db' ? 'blue' : 'orange'}
+                      data-testid="queuedCall.statusSource"
+                      title={statusSource === 'db'
+                        ? '来自 craftsman_store 表，与取号校验同源'
+                        : '来自 Redis 缓存（未登录小程序或查库接口被拒），可能与取号校验读的 DB 不一致；登录小程序账号后刷新可读 DB'}
+                    >
+                      {statusSource === 'db' ? 'DB' : '缓存'}
+                    </Tag>
+                  )}
                 </span>
                 <Button
                   size="small"

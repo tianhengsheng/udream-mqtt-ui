@@ -15,6 +15,7 @@
  * 辅助读接口，走 _useStaffToken 借 App token，绕开网关对小程序 token 的白名单限制（见 client.ts 文件头）。
  */
 import { http } from './client';
+import { useSession } from '../store/useSession';
 import { bigIntSafeParse } from './common';
 import type { Resp } from '../types';
 
@@ -208,14 +209,45 @@ export const ACTIVE_STATUS_LABEL: Record<number, string> = {
 /** 取号放行的工作状态（同后端 checkCraftsmanStore 的白名单） */
 export const QUEUED_ALLOW_ACTIVE_STATUS = [1, 4, 5];
 
-/** 查手艺人当前工作状态（StoreCraftsmanController#getCraftsmanStore）。 */
-export async function getActiveStatus(storeId: string, craftsmanId: string): Promise<number | undefined> {
+/** 工作状态读取结果：值 + 数据来源（db=craftsman_store 表，cache=Redis 门店手艺人缓存） */
+export interface ActiveStatusResult {
+  activeStatus?: number;
+  source: 'db' | 'cache';
+}
+
+/**
+ * 查手艺人当前工作状态。**查库优先，缓存兜底**：
+ *
+ * - 首选 StoreCraftsmanController#getStoreCraftsman，直接查 craftsman_store 表，与取号校验
+ *   （base CraftsmanMgrServiceImpl#checkAddQueuedNew → getCraftsmanCheck SQL）同源。该接口 api_auth 只放行
+ *   小程序顾客 token（pass_token=[2]，App/PC token 调会 50140），故借用小程序身份调（_useMiniToken）。
+ * - 未登录小程序、或被拒时退回 getCraftsmanStore（读 Redis 缓存，App token 可调）。缓存与 DB 会不一致：
+ *   unified 的「强制下班」整表 update 只改 DB 不刷缓存，缓存显示可接单、取号照样被拒（2026-09-08 踩过），
+ *   页面按 source 提示「缓存值，可能与取号校验不一致」。
+ */
+export async function getActiveStatus(storeId: string, craftsmanId: string): Promise<ActiveStatusResult> {
+  if (useSession.getState().miniUser()) {
+    try {
+      const res = await http.get<Resp<{ activeStatus?: number }>>('/basics/store/craftsman/getStoreCraftsman', {
+        params: { storeId, craftsmanId },
+        transformResponse: [bigIntSafeParse],
+        _useMiniToken: true,
+        _silent: true,
+      });
+      const body = res.data?.result ?? res.data?.data;
+      if (body) {
+        return { activeStatus: body.activeStatus, source: 'db' };
+      }
+    } catch {
+      /* 落到缓存兜底 */
+    }
+  }
   const res = await http.get<Resp<{ activeStatus?: number }>>('/basics/store/craftsman/getCraftsmanStore', {
     params: { storeId, craftsmanId },
     transformResponse: [bigIntSafeParse],
     _useStaffToken: true,
   });
-  return (res.data?.result ?? res.data?.data)?.activeStatus;
+  return { activeStatus: (res.data?.result ?? res.data?.data)?.activeStatus, source: 'cache' };
 }
 
 /**
@@ -224,10 +256,15 @@ export async function getActiveStatus(storeId: string, craftsmanId: string): Pro
  *
  * ⚠️ 不要用 App 端的 `/order/manage/craftsman/updateActiveStatus`：那条链路里
  * StoreCraftsmanServiceImpl#updateActiveStatus 有一道
- * `activeStatus==0 && 目标!=0 → "您已下班,请打卡上班后再操作"` 的拦截，
- * 而打卡上班接口在 mgt 项目（本仓库没有），非工作时段自测直接卡死。
- * mgt 这条没有该校验，支持 0/1/2/6 互切，同样走 updateComm 维护手艺人门店缓存，
+ * `activeStatus==0 && 目标!=0 → "您已下班,请打卡上班后再操作"` 的拦截。
+ * mgt 这条支持 0/1/2/6 互切，走 updateComm 同时写 DB 和手艺人门店缓存，
  * 并在 record_craftsman_set 留一条操作记录（自测痕迹可查）。
+ *
+ * ⚠️ 2026-01 起 mgt 这条切「可接单」(1) 也加了校验：当天必须有打卡记录
+ * （CraftsmanStoreBindMgrServiceImpl#updateCraftsmanActiveStatus → getAttendanceDetailByCidAndDate），
+ * 没有则返回 CRAFTSMAN_NOT_ALLOW_ORDER。长期没打卡的测试手艺人切不回 1，
+ * dev 自测直接改库：`UPDATE udream_basics.craftsman_store SET active_status=1 WHERE craftsman_id=? AND store_id=? AND is_default=1`
+ * （缓存不一致时也用这条对齐，本页读的是 DB）。
  *
  * 约束：只对**默认门店**（is_default=1）那条绑定关系生效，否则报「手艺人未绑定该门店」。
  */

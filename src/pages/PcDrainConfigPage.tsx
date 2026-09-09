@@ -4,6 +4,10 @@
  * 可改：`washbed_drain_timeout_cnf`（dye-service 读）。写接口会主动删配置缓存，
  * 且 dye 不带本地缓存，**保存后立刻生效**，不用刷缓存也不用重启服务。
  *
+ * 可改（带延迟）：`washbed_queued_event_channel`（order-service 读，0 Kafka / 1 Feign 直调 dye）。
+ * order-service 有 15 分钟本地缓存，保存后不会立刻切换；本地联调重启 OrderApp 立即生效。
+ * 行不存在时保存会报「须知配置不存在」，先执行后端 mqtt_0908_washbed_feign_switch.sql。
+ *
  * 只读：`shampoo_bed_store_id` / `shampoo_bed_item_id`（order-service 读）。
  * 预热不触发时八成是门店或项目不在名单里，这里能直接看到。这两项**故意不给改**：
  * order-service 在 BASIC_CONFIG_CONS 本地缓存白名单内，改完最长 15 分钟才生效，
@@ -14,7 +18,7 @@
  * 页面保持**浅色**：模拟器那套深色 theme.ts 是模拟器专用，不要往这里套。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Form, InputNumber, Space, Spin, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, InputNumber, Radio, Space, Spin, Tag, Typography, message } from 'antd';
 import { ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import {
   DRAIN_CNF_DEFAULT,
@@ -22,8 +26,12 @@ import {
   KEY_SHAMPOO_BED_ITEM,
   KEY_SHAMPOO_BED_STORE,
   KEY_WASHBED_DRAIN_TIMEOUT,
+  KEY_WASHBED_QUEUED_EVENT_CHANNEL,
+  QUEUED_EVENT_CHANNEL_FEIGN,
+  QUEUED_EVENT_CHANNEL_KAFKA,
   buildDrainCnfValue,
   parseDrainCnf,
+  parseQueuedEventChannel,
   queryConfigConst,
   splitIdList,
   updateConfigConst,
@@ -46,18 +54,25 @@ export function PcDrainConfigPage() {
   const [drainItem, setDrainItem] = useState<ConfigConstItem>();
   const [storeItem, setStoreItem] = useState<ConfigConstItem>();
   const [itemItem, setItemItem] = useState<ConfigConstItem>();
+  const [channelItem, setChannelItem] = useState<ConfigConstItem>();
+  /** 通道单选当前值（'0'/'1'），与 channelItem 分开存：未保存的选择不影响「当前生效值」展示 */
+  const [channel, setChannel] = useState<string>(QUEUED_EVENT_CHANNEL_KAFKA);
+  const [channelSaving, setChannelSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [drain, store, item] = await Promise.all([
+      const [drain, store, item, ch] = await Promise.all([
         queryConfigConst(KEY_WASHBED_DRAIN_TIMEOUT),
         queryConfigConst(KEY_SHAMPOO_BED_STORE),
         queryConfigConst(KEY_SHAMPOO_BED_ITEM),
+        queryConfigConst(KEY_WASHBED_QUEUED_EVENT_CHANNEL),
       ]);
       setDrainItem(drain);
       setStoreItem(store);
       setItemItem(item);
+      setChannelItem(ch);
+      setChannel(parseQueuedEventChannel(ch?.value));
       form.setFieldsValue(parseDrainCnf(drain?.value));
     } catch {
       /* 错误提示由 http 拦截器统一弹出 */
@@ -84,6 +99,24 @@ export function PcDrainConfigPage() {
       setSaving(false);
     }
   };
+
+  const saveChannel = async () => {
+    setChannelSaving(true);
+    try {
+      await updateConfigConst(KEY_WASHBED_QUEUED_EVENT_CHANNEL, channel);
+      message.success(
+        `已保存为「${channel === QUEUED_EVENT_CHANNEL_FEIGN ? 'Feign 直调' : 'Kafka'}」；order-service 最长 15 分钟后生效，本地联调请重启 OrderApp`,
+      );
+      await load();
+    } catch {
+      /* 错误提示由 http 拦截器统一弹出（行不存在会报「须知配置不存在」） */
+    } finally {
+      setChannelSaving(false);
+    }
+  };
+
+  const channelConfigured = !!channelItem?.value;
+  const effectiveChannel = parseQueuedEventChannel(channelItem?.value);
 
   const readonlyCnfs: ReadonlyCnf[] = [
     {
@@ -189,6 +222,64 @@ export function PcDrainConfigPage() {
               <Typography.Text code copyable data-testid="drainConfig.rawValue">
                 {drainItem?.value || '(未配置，代码兜底 云端30/设备30/尚热10)'}
               </Typography.Text>
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+
+        <Card
+          title="排队事件投递通道（washbed_queued_event_channel）"
+          size="small"
+          extra={
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              loading={channelSaving}
+              disabled={channel === effectiveChannel}
+              onClick={() => void saveChannel()}
+              data-testid="drainConfig.channel.save"
+            >
+              保存
+            </Button>
+          }
+        >
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="order-service 读此配置且带 15 分钟本地缓存：保存后线上/dev 最长 15 分钟才切换；本地联调重启 OrderApp 立即生效。两条通道都异步执行、失败不回退到另一条。"
+          />
+          {!channelConfigured && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="该环境尚未插入这行配置（当前按 Kafka 处理）。直接保存会报「须知配置不存在」，先执行后端 docs/mqtt/sql/mqtt_0908_washbed_feign_switch.sql。"
+            />
+          )}
+          <Radio.Group
+            value={channel}
+            onChange={(e) => setChannel(String(e.target.value))}
+            data-testid="drainConfig.channel"
+          >
+            <Space direction="vertical">
+              <Radio value={QUEUED_EVENT_CHANNEL_KAFKA} data-testid="drainConfig.channel.kafka">
+                Kafka（默认）：order 发 washbed_queued_event → dye 消费组消费
+              </Radio>
+              <Radio value={QUEUED_EVENT_CHANNEL_FEIGN} data-testid="drainConfig.channel.feign">
+                Feign 直调：order 调 dye /dye/client/washbedQueuedEvent（dye 消费者被踢出组时的应急旁路）
+              </Radio>
+            </Space>
+          </Radio.Group>
+          <Descriptions size="small" column={1} bordered style={{ marginTop: 12 }}>
+            <Descriptions.Item label="当前生效">
+              <Space>
+                <Tag color={effectiveChannel === QUEUED_EVENT_CHANNEL_FEIGN ? 'processing' : 'default'} data-testid="drainConfig.channel.effective">
+                  {effectiveChannel === QUEUED_EVENT_CHANNEL_FEIGN ? 'Feign 直调' : 'Kafka'}
+                </Tag>
+                <Typography.Text code data-testid="drainConfig.channel.rawValue">
+                  {channelConfigured ? channelItem?.value : '(未配置)'}
+                </Typography.Text>
+              </Space>
             </Descriptions.Item>
           </Descriptions>
         </Card>

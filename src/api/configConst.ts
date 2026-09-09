@@ -37,6 +37,25 @@ export const KEY_WASHBED_DRAIN_TIMEOUT = 'washbed_drain_timeout_cnf';
 export const KEY_SHAMPOO_BED_STORE = 'shampoo_bed_store_id';
 /** 洗头床项目 id 白名单 key（order-service 读，订单含其中项目才发预热事件） */
 export const KEY_SHAMPOO_BED_ITEM = 'shampoo_bed_item_id';
+/**
+ * 排队事件投递通道 key（order-service 读，后端 CommonConfigConstant.WASHBED_QUEUED_EVENT_CHANNEL，2026-09-08）。
+ * value：'0'/缺配置 = Kafka washbed_queued_event；'1' = Feign 直调 dye（DyeWashbedClient）。
+ * 生产 dye 的 Kafka 消费者被踢出组时切 1 应急；两条通道都异步、失败不回退。
+ * ⚠️ order-service 在 BASIC_CONFIG_CONS 本地缓存白名单内，改完最长 15 分钟生效；本地联调重启 OrderApp 立即生效。
+ * ⚠️ 行不存在时更新接口报「须知配置不存在」，先执行后端 docs/mqtt/sql/mqtt_0908_washbed_feign_switch.sql 插行。
+ */
+export const KEY_WASHBED_QUEUED_EVENT_CHANNEL = 'washbed_queued_event_channel';
+
+/** 投递通道取值 */
+export const QUEUED_EVENT_CHANNEL_KAFKA = '0';
+export const QUEUED_EVENT_CHANNEL_FEIGN = '1';
+
+/** 解析通道 value：'1' 为 Feign，其余（含缺配置/空串）按后端口径视为 Kafka */
+export function parseQueuedEventChannel(value?: string): string {
+  return (value ?? '').trim() === QUEUED_EVENT_CHANNEL_FEIGN
+    ? QUEUED_EVENT_CHANNEL_FEIGN
+    : QUEUED_EVENT_CHANNEL_KAFKA;
+}
 
 /** 排水超时分钟数取值上限（两个超时同上限，协议 bizData.timeoutMinutes 范围 [0,600]） */
 export const DRAIN_TIMEOUT_MAX = 600;
