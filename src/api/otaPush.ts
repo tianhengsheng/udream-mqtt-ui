@@ -65,6 +65,7 @@ export async function batchPushOta(firmwareId: string | number, deviceCodes: str
 export async function fetchCurrentBatch(): Promise<OtaBatchSummary | null> {
   const res = await http.get<Resp<OtaBatchSummary>>('/dye/apiUnified/ota/batch/current', {
     transformResponse: [bigIntSafeParse],
+    _silent: true, // 接口仅 feat_mqtt_dye 分支有，其他环境 404，状态条按"无活跃批次"处理
   });
   const r = res.data?.result;
   if (!r || r.batchId == null) return null;

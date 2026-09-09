@@ -639,7 +639,6 @@ export function PcDeviceListPage() {
               批量升级{selectedRows.length ? `（${selectedRows.length}）` : ''}
             </Button>
           </Tooltip>
-          <OtaBatchStatusBar refreshSeq={otaRefreshSeq} onActiveChange={setOtaActive} />
           <Upload {...uploadProps}>
             <Button data-testid="deviceList.import" icon={<UploadOutlined />} loading={importing}>
               导入
@@ -650,6 +649,8 @@ export function PcDeviceListPage() {
             模板下载
           </a>
         </Space>
+        {/* 当前批量升级批次状态条：独立一行，无活跃批次时组件自身返回 null 不占位 */}
+        <OtaBatchStatusBar refreshSeq={otaRefreshSeq} onActiveChange={setOtaActive} />
       </Card>
 
       <Card size="small" styles={{ body: { padding: 0 } }}>

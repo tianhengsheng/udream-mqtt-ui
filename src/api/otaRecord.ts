@@ -120,6 +120,7 @@ export async function fetchOtaRecordPage(
 export async function fetchOtaVersions(deviceModel?: number): Promise<string[]> {
   const res = await http.get<Resp<string[]>>('/dye/apiUnified/ota/record/versions', {
     params: deviceModel == null ? {} : { deviceModel },
+    _silent: true, // 接口仅 feat_mqtt_dye 分支有，其他环境 404，调用方自带空数组兜底
   });
   return res.data?.result ?? [];
 }

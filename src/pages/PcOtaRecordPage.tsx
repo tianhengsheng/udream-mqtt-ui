@@ -107,10 +107,14 @@ export function PcOtaRecordPage() {
     });
   }, [preset, form]);
 
-  // 版本下拉只拉一次；查询后不刷新，避免每次搜索多一个请求
-  useEffect(() => {
+  // 版本下拉**展开时才拉、只拉一次**，不在页面加载时请求：
+  // /ota/record/versions 只在 feat_mqtt_dye 分支有，master/test 上是 404，进页面就请求会弹全局报错。
+  const [versionsLoaded, setVersionsLoaded] = useState(false);
+  const loadVersions = () => {
+    if (versionsLoaded) return;
+    setVersionsLoaded(true);
     fetchOtaVersions().then(setVersions).catch(() => setVersions([]));
-  }, []);
+  };
 
   const onSearch = () => {
     setPageNum(1);
@@ -199,23 +203,13 @@ export function PcOtaRecordPage() {
               placeholder="请选择"
               allowClear
               showSearch
+              onOpenChange={(open) => { if (open) loadVersions(); }}
               options={(preset?.targetVersion && !versions.includes(preset.targetVersion)
                 ? [preset.targetVersion, ...versions]
                 : versions).map((v) => ({ value: v, label: v }))}
               style={{ width: 140 }}
             />
           </Form.Item>
-          {showChip && (
-            <Form.Item label="芯片" name="chip">
-              <Select
-                data-testid="otaRecord.chip"
-                placeholder="请选择"
-                allowClear
-                options={CHIPS.map((c) => ({ value: c.value, label: c.label }))}
-                style={{ width: 120 }}
-              />
-            </Form.Item>
-          )}
           <Form.Item label="升级时间" name="pushRange">
             <DatePicker.RangePicker data-testid="otaRecord.pushRange" style={{ width: 240 }} />
           </Form.Item>
@@ -238,6 +232,17 @@ export function PcOtaRecordPage() {
               style={{ width: 160 }}
             />
           </Form.Item>
+          {showChip && (
+            <Form.Item label="芯片" name="chip">
+              <Select
+                data-testid="otaRecord.chip"
+                placeholder="请选择"
+                allowClear
+                options={CHIPS.map((c) => ({ value: c.value, label: c.label }))}
+                style={{ width: 120 }}
+              />
+            </Form.Item>
+          )}
         </Form>
         <Space style={{ marginTop: 8 }} wrap>
           <Button data-testid="otaRecord.search" type="primary" icon={<SearchOutlined />} onClick={onSearch}>查询</Button>
