@@ -12,6 +12,7 @@
 import { http } from './client';
 import { bigIntSafeParse } from './common';
 import type { PageResp, Resp } from '../types';
+import { serializeWithChipVersions, type ChipVersion } from './chipVersion';
 
 /** 设备型号（DyeConstant.Model，与导入模板表头一致） */
 export const DEVICE_MODELS = [
@@ -87,6 +88,11 @@ export interface DyeDeviceItem {
   typeName?: string;
   creamCapacityList?: DyeCreamItem[];
   creamLastSyncTime?: string;
+  /**
+   * 版本号（前端自行拼接，见 joinChipVersions）：四代机逐颗芯片 [{chip:'p4'},{chip:'c5'}]（缺哪颗省哪颗）；
+   * 洗头床 = 上报 firmwareVersion、其余机型 = dye_device_store.version（chip 都是 ''）；MQTT 机型未上报为 []
+   */
+  version?: ChipVersion[];
   runState?: number;
   runDesc?: string;
   /** 设备所在地（列表里这列叫「联网所在地」） */
@@ -128,6 +134,8 @@ export interface DyeDeviceQuery {
   bindingStartTime?: string;
   bindingEndTime?: string;
   costStatus?: number;
+  /** 版本筛选：芯片短码 + 版本，多选为或关系；四代机按 MQTT 上报匹配，其余机型 chip='' 按库表匹配 */
+  version?: ChipVersion[];
 }
 
 /**
@@ -168,6 +176,8 @@ const MGT_EXTRA_PARAMS = {
 export async function exportDyeDevice(query: DyeDeviceQuery): Promise<{ downloaded: boolean; msg?: string }> {
   const res = await http.get('/mgtDye/dye/device/exportStaffDye', {
     params: { ...MGT_EXTRA_PARAMS, ...query },
+    // version 是对象数组，要按 Spring 的 version[0].chip 索引写法拼
+    paramsSerializer: { serialize: (p) => serializeWithChipVersions(p as Record<string, unknown>) },
     responseType: 'blob',
   });
   const blob = res.data as Blob;

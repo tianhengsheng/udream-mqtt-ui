@@ -31,6 +31,8 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { ChipVersionSelect } from '../components/ChipVersionSelect';
+import { decodeCV, joinChipVersions, type ChipVersion } from '../api/chipVersion';
 import type { UploadProps } from 'antd';
 import {
   FilterOutlined,
@@ -79,6 +81,8 @@ interface FilterValues {
   transferStatus?: number;
   model?: number;
   transferRange?: [Dayjs, Dayjs];
+  /** 版本号多选，`chip|version` 编码串（见 ChipVersionSelect） */
+  version?: string[];
   // —— 「更多筛选」里的字段 ——
   bindingStatus?: number;
   trackUserName?: string;
@@ -92,6 +96,7 @@ function toQuery(v: FilterValues): DyeDeviceQuery {
     deviceStatus: v.deviceStatus,
     transferStatus: v.transferStatus,
     model: v.model,
+    version: v.version?.length ? v.version.map(decodeCV) : undefined,
     bindingStatus: v.bindingStatus,
     trackUserName: v.trackUserName?.trim() || undefined,
     transferStartTime: v.transferRange?.[0]?.format(DATE_FMT),
@@ -455,6 +460,8 @@ export function PcDeviceListPage() {
       },
       { title: '设备名称', dataIndex: 'deviceName', width: 120, ellipsis: true, fixed: 'left' },
       { title: 'MAC码', dataIndex: 'macCode', width: 140, fixed: 'left' },
+      // 版本号后端给 [{chip,version}]，前端拼「P4:x C5:y」（无芯片直接版本号）
+      { title: '版本号', dataIndex: 'version', width: 170, ellipsis: true, render: (v: ChipVersion[]) => joinChipVersions(v) || '-' },
       {
         title: '设备类型',
         dataIndex: 'model',
@@ -581,6 +588,9 @@ export function PcDeviceListPage() {
               options={DEVICE_MODELS.map((m) => ({ value: m.value, label: m.label }))}
               style={{ width: 160 }}
             />
+          </Form.Item>
+          <Form.Item label="版本号" name="version">
+            <ChipVersionSelect testid="deviceList.version" />
           </Form.Item>
           <Form.Item label="划拨时间" name="transferRange">
             <DatePicker.RangePicker data-testid="deviceList.transferRange" style={{ width: 220 }} />

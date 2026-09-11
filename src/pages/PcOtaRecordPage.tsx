@@ -12,16 +12,15 @@ import { Button, Card, DatePicker, Form, Input, Select, Space, Table, Tooltip, m
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
-import { CHIPS } from '../api/firmware';
+import { ChipVersionSelect } from '../components/ChipVersionSelect';
+import { CHIP_SHORT_LABEL, decodeCV, encodeCV, toShortChip, type ChipVersion } from '../api/chipVersion';
 import {
-  CHIP_LABEL,
   DEVICE_MODELS,
   MODEL_LABEL,
   OTA_STATUS_LABEL,
   OTA_STATUS_OPTIONS,
   exportOtaRecord,
   fetchOtaRecordPage,
-  fetchOtaVersions,
   takeOtaRecordPreset,
   type OtaRecordItem,
   type OtaRecordPreset,
@@ -36,8 +35,8 @@ const dash = (v?: string | number | null) => (v === undefined || v === null || v
 
 interface FilterValues {
   deviceCode?: string;
-  targetVersion?: string;
-  chip?: string;
+  /** 版本号多选，`chip|version` 编码串（见 ChipVersionSelect） */
+  version?: string[];
   pushRange?: [Dayjs, Dayjs];
   status?: number;
   deviceModel?: number;
@@ -46,9 +45,7 @@ interface FilterValues {
 function toQuery(v: FilterValues): OtaRecordQuery {
   return {
     deviceCode: v.deviceCode?.trim() || undefined,
-    targetVersion: v.targetVersion || undefined,
-    // 芯片只在四代机下生效，切到别的型号即使表单里残留也不带
-    chip: v.deviceModel === DEFAULT_MODEL ? v.chip || undefined : undefined,
+    version: v.version?.length ? v.version.map(decodeCV) : undefined,
     status: v.status,
     deviceModel: v.deviceModel,
     startTime: v.pushRange?.[0]?.startOf('day').format(DATETIME_FMT),
@@ -60,10 +57,12 @@ export function PcOtaRecordPage() {
   const [form] = Form.useForm<FilterValues>();
   // 固件管理「查看升级详情」/ 状态条「查看记录」跳来时的预置筛选：版本/芯片/型号回填表单，就是普通的表单条件
   const [preset] = useState<OtaRecordPreset | null>(() => takeOtaRecordPreset());
+  // 预置的版本 + 芯片合成一个 ChipVersion（芯片长码转短码；非四代机不带芯片）
+  const presetCV: ChipVersion | null = preset?.targetVersion
+    ? { chip: (preset.deviceModel ?? DEFAULT_MODEL) === DEFAULT_MODEL ? toShortChip(preset.chip) : '', version: preset.targetVersion }
+    : null;
   const [query, setQuery] = useState<OtaRecordQuery>(() => (preset ? {
-    targetVersion: preset.targetVersion,
-    // 芯片只对四代机有意义
-    chip: (preset.deviceModel ?? DEFAULT_MODEL) === DEFAULT_MODEL ? preset.chip : undefined,
+    version: presetCV ? [presetCV] : undefined,
     deviceModel: preset.deviceModel ?? DEFAULT_MODEL,
   } : { deviceModel: DEFAULT_MODEL }));
   const [pageNum, setPageNum] = useState(1);
@@ -72,10 +71,6 @@ export function PcOtaRecordPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [versions, setVersions] = useState<string[]>([]);
-  // 芯片筛选只对四代机有意义（其他型号不分芯片）：设备类型不是四代机时隐藏并清掉芯片值
-  const modelValue = Form.useWatch('deviceModel', form);
-  const showChip = modelValue === DEFAULT_MODEL;
   const seqRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -101,20 +96,11 @@ export function PcOtaRecordPage() {
   useEffect(() => {
     if (!preset) return;
     form.setFieldsValue({
-      targetVersion: preset.targetVersion,
-      chip: preset.chip,
+      version: presetCV ? [encodeCV(presetCV)] : undefined,
       deviceModel: preset.deviceModel ?? DEFAULT_MODEL,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, form]);
-
-  // 版本下拉**展开时才拉、只拉一次**，不在页面加载时请求：
-  // /ota/record/versions 只在 feat_mqtt_dye 分支有，master/test 上是 404，进页面就请求会弹全局报错。
-  const [versionsLoaded, setVersionsLoaded] = useState(false);
-  const loadVersions = () => {
-    if (versionsLoaded) return;
-    setVersionsLoaded(true);
-    fetchOtaVersions().then(setVersions).catch(() => setVersions([]));
-  };
 
   const onSearch = () => {
     setPageNum(1);
@@ -149,7 +135,7 @@ export function PcOtaRecordPage() {
         render: (v: string, r) => (
           <span>
             {dash(v)}
-            {r.chip && <span style={{ color: '#8c8c8c', marginLeft: 6 }}>（{CHIP_LABEL[r.chip] ?? r.chip}）</span>}
+            {r.chip && <span style={{ color: '#8c8c8c', marginLeft: 6 }}>（{CHIP_SHORT_LABEL[r.chip] ?? r.chip}）</span>}
           </span>
         ),
       },
@@ -197,18 +183,8 @@ export function PcOtaRecordPage() {
           <Form.Item label="MAC码" name="deviceCode">
             <Input data-testid="otaRecord.deviceCode" placeholder="请输入MAC码" allowClear style={{ width: 150 }} />
           </Form.Item>
-          <Form.Item label="版本号" name="targetVersion">
-            <Select
-              data-testid="otaRecord.version"
-              placeholder="请选择"
-              allowClear
-              showSearch
-              onOpenChange={(open) => { if (open) loadVersions(); }}
-              options={(preset?.targetVersion && !versions.includes(preset.targetVersion)
-                ? [preset.targetVersion, ...versions]
-                : versions).map((v) => ({ value: v, label: v }))}
-              style={{ width: 140 }}
-            />
+          <Form.Item label="版本号" name="version">
+            <ChipVersionSelect testid="otaRecord.version" extra={presetCV ? [presetCV] : undefined} />
           </Form.Item>
           <Form.Item label="升级时间" name="pushRange">
             <DatePicker.RangePicker data-testid="otaRecord.pushRange" style={{ width: 240 }} />
@@ -227,22 +203,10 @@ export function PcOtaRecordPage() {
               data-testid="otaRecord.model"
               placeholder="请选择"
               allowClear
-              onChange={(v) => { if (v !== DEFAULT_MODEL) form.setFieldValue('chip', undefined); }}
               options={DEVICE_MODELS.map((m) => ({ value: m.value, label: m.label }))}
               style={{ width: 160 }}
             />
           </Form.Item>
-          {showChip && (
-            <Form.Item label="芯片" name="chip">
-              <Select
-                data-testid="otaRecord.chip"
-                placeholder="请选择"
-                allowClear
-                options={CHIPS.map((c) => ({ value: c.value, label: c.label }))}
-                style={{ width: 120 }}
-              />
-            </Form.Item>
-          )}
         </Form>
         <Space style={{ marginTop: 8 }} wrap>
           <Button data-testid="otaRecord.search" type="primary" icon={<SearchOutlined />} onClick={onSearch}>查询</Button>

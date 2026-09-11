@@ -15,7 +15,8 @@ import { http } from './client';
 import { bigIntSafeParse } from './common';
 import { DEVICE_MODELS, MODEL_LABEL } from './dye';
 import { CHIP_LABEL } from './firmware';
-import type { PageResp, Resp } from '../types';
+import { serializeWithChipVersions, type ChipVersion } from './chipVersion';
+import type { PageResp } from '../types';
 
 export { DEVICE_MODELS, MODEL_LABEL, CHIP_LABEL };
 
@@ -50,7 +51,7 @@ export interface OtaRecordItem {
   deviceCode?: string;
   deviceModel?: number;
   taskId?: string;
-  /** esp32p4 / esp32c5 */
+  /** 芯片短码 p4 / c5（2026-09-11 起后端统一短码） */
   chip?: string;
   currentVersion?: string;
   targetVersion?: string;
@@ -70,8 +71,8 @@ export interface OtaRecordQuery {
   counted?: boolean;
   /** MAC 码，后端 eq 精确匹配 */
   deviceCode?: string;
-  targetVersion?: string;
-  chip?: string;
+  /** 版本筛选：芯片短码 + 目标版本，多选为或关系；空不筛（替代原 targetVersion + chip 单选） */
+  version?: ChipVersion[];
   status?: number;
   deviceModel?: number;
   /** 固件包 id（后端保留的精确过滤项，页面当前不传） */
@@ -116,19 +117,12 @@ export async function fetchOtaRecordPage(
   return { list, total };
 }
 
-/** 版本号下拉：记录表出现过的目标版本（最近推送的在前） */
-export async function fetchOtaVersions(deviceModel?: number): Promise<string[]> {
-  const res = await http.get<Resp<string[]>>('/dye/apiUnified/ota/record/versions', {
-    params: deviceModel == null ? {} : { deviceModel },
-    _silent: true, // 接口仅 feat_mqtt_dye 分支有，其他环境 404，调用方自带空数组兜底
-  });
-  return res.data?.result ?? [];
-}
-
 /** 导出：后端直写 xls 流，blob 收；回 JSON 就把提示透出来（套路同 dye.ts#exportDyeDevice） */
 export async function exportOtaRecord(query: OtaRecordQuery): Promise<{ downloaded: boolean; msg?: string }> {
   const res = await http.get('/dye/apiUnified/ota/record/export', {
     params: query,
+    // version 是对象数组，要按 Spring 的 version[0].chip 索引写法拼
+    paramsSerializer: { serialize: (p) => serializeWithChipVersions(p as Record<string, unknown>) },
     responseType: 'blob',
   });
   const blob = res.data as Blob;

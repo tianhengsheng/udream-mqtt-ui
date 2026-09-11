@@ -189,6 +189,13 @@ await __t.sleep(2500);  // 400ms 防抖 + 网络，别压到 1s 以内
 
 - **`mark=true` 整行标红**（后端口径：同门店同型号 ≥2 台）。断言用计算样式而非截图：
   `getComputedStyle(tr).color === 'rgb(255, 77, 79)'`。
+- **版本号列**（MAC码 右侧，2026-09-11 加）：后端给 `version:[{chip,version}]`（chip 短码 p4/c5，非四代机 ''），前端 `joinChipVersions`
+  拼成 `P4:x C5:y`（缺哪颗省哪颗、旧固件只有 firmwareVersion 则裸显示）；洗头床 = 上报 firmwareVersion、其余机型 = `dye_device_store.version`；
+  MQTT 机型从未上报过显示 `-`（如 dev 的 `0469419`）。
+- **版本号筛选**（`deviceList.version`，多选，与升级记录页共用 `ChipVersionSelect`）：选项来自 `/ota/record/versions`（记录表出现过的芯片+目标版本，
+  **展开时才拉**），表单值是 `chip|version` 编码串，提交转 `version:[{chip,version}]`。后端四代机/洗头床按 MQTT 缓存精筛（内存路径）、
+  其余机型按库表 `dds.version`；老机型版本不走 OTA 所以下拉里没有，选不到是口径不是 bug。驱动：`await __t.select('请选择','v0.1.6（C5）')`
+  打不开就用 §2.3 门店搜索那套手动 pointer 事件 + `.rc-virtual-list-holder` 滚动。
 - **染膏容量列只有四代机有值**，其余显示 `-`；列内是「N口 + 最低 x%（按最差状态着色）」，
   明细（每口色号/克数/百分比 + 更新时间）在 hover Popover 里。合成事件要发
   `pointerover/mouseover/mouseenter` 才弹。
