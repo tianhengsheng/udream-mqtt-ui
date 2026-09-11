@@ -89,8 +89,8 @@ export interface DyeDeviceItem {
   creamCapacityList?: DyeCreamItem[];
   creamLastSyncTime?: string;
   /**
-   * 版本号（前端自行拼接，见 joinChipVersions）：四代机逐颗芯片 [{chip:'p4'},{chip:'c5'}]（缺哪颗省哪颗）；
-   * 洗头床 = 上报 firmwareVersion、其余机型 = dye_device_store.version（chip 都是 ''）；MQTT 机型未上报为 []
+   * 版本号（前端自行拼接，见 joinChipVersions）：仅四代机有值，逐颗芯片 [{chip:'p4'},{chip:'c5'}]（缺哪颗省哪颗）；
+   * 四代机未上报及其余机型一律 []（2026-09-11 拍板：与 /ota/record/versions 下拉集合对齐，老机型/洗头床不显示版本）
    */
   version?: ChipVersion[];
   runState?: number;
@@ -134,7 +134,7 @@ export interface DyeDeviceQuery {
   bindingStartTime?: string;
   bindingEndTime?: string;
   costStatus?: number;
-  /** 版本筛选：芯片短码 + 版本，多选为或关系；四代机按 MQTT 上报匹配，其余机型 chip='' 按库表匹配 */
+  /** 版本筛选：芯片短码 + 版本，多选为或关系；只对四代机生效（其余机型无版本，带此筛选时不出现） */
   version?: ChipVersion[];
 }
 
