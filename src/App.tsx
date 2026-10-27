@@ -18,6 +18,7 @@ import { AppDyeDevicePage } from './pages/AppDyeDevicePage';
 import { AppWashbedPage } from './pages/AppWashbedPage';
 import { AppQueuedCallPage } from './pages/AppQueuedCallPage';
 import { MiniQueuedAddPage } from './pages/MiniQueuedAddPage';
+import { FactoryDevicePage } from './pages/FactoryDevicePage';
 import { AppDyeColorPage } from './pages/AppDyeColorPage';
 import { bindNavigate } from './nav';
 
@@ -32,6 +33,7 @@ const CLIENT_TAG: Record<PageClient, { color: string; text: string }> = {
   pc: { color: 'geekblue', text: 'PC' },
   app: { color: 'green', text: 'App' },
   mini: { color: 'orange', text: '小程序' },
+  factory: { color: 'cyan', text: '出厂' },
   device: { color: 'default', text: '设备' },
 };
 
@@ -53,6 +55,7 @@ const PAGES = [
   { key: 'appWashbed', client: 'app', label: '洗头床控制', Comp: AppWashbedPage },
   { key: 'appQueuedCall', client: 'app', label: '排队叫号', Comp: AppQueuedCallPage },
   { key: 'miniQueuedAdd', client: 'mini', label: '取号', Comp: MiniQueuedAddPage },
+  { key: 'factoryDevice', client: 'factory', label: '设备详情', Comp: FactoryDevicePage },
   // 下料页不出菜单：从「智染设备」页点「去下料」进入（label 跳转对 hidden 页有效，见 nav.ts）
   { key: 'appDyeColor', client: 'app', label: '下料(App)', Comp: AppDyeColorPage, hidden: true },
   // 框架自检页：脚手架连通性验证用，平时收起（__t.nav('框架自检') 可进）

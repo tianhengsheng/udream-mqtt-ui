@@ -96,6 +96,20 @@ export async function loginApp(mobile: string, password: string, deviceId: strin
 }
 
 /**
+ * APP智染出厂工具登录 → token（body result.token）。账号密码明文上送，服务端 BCrypt 比对。
+ * envKey 指定时打到该环境（并发查各环境在线用），否则走当前环境。
+ */
+export async function loginFactory(account: string, password: string, envKey?: string): Promise<LoginOutcome> {
+  const url = `${envKey ? `/env/${envKey}` : ''}/dye/apiCraftsman/factory/login`;
+  const res = await http.post<Resp<LoginResult>>(url, { account, password }, {
+    _skipReauth: true,
+    // 指定环境时不带当前环境的 token，也不弹全局错误（调用方按环境展示）
+    ...(envKey ? { _att: '', _silent: true } : {}),
+  });
+  return { token: extractToken(res) };
+}
+
+/**
  * APP 登录必填的 deviceId（自测场景无真实设备号）：首次随机生成一个稳定值存 localStorage，
  * 之后固定复用，避免每次登录变化触发后端按设备的风控/挤下线逻辑。
  */
@@ -126,7 +140,9 @@ export function silentRelogin(acc: Account): Promise<string | null> {
     const outcome =
       acc.mode === 'pc'
         ? await loginPc(acc.account!, acc.password!)
-        : await loginApp(acc.account!, acc.password!, getSelfTestDeviceId());
+        : acc.mode === 'factory'
+          ? await loginFactory(acc.account!, acc.password!)
+          : await loginApp(acc.account!, acc.password!, getSelfTestDeviceId());
     const v = decodeAtToken(outcome.token);
     useSession.getState().upsertUser(
       {

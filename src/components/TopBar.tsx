@@ -13,21 +13,28 @@ import {
 import { useSession, type Account, type AccountSnapshot, type ClientMode } from '../store/useSession';
 import { ENV_PRESETS } from '../envs';
 import { decodeAtToken, isAtTokenExpired, type DecodedAtToken } from '../utils/jwt';
-import { loginApp, loginPc, getSelfTestDeviceId } from '../api/auth';
+import { loginApp, loginFactory, loginPc, getSelfTestDeviceId } from '../api/auth';
 import { fetchCraftsmanRole, fetchPcRoleName, roleLabel } from '../api/role';
 
-const MODE_LABEL: Record<ClientMode, string> = { pc: '后台(PC)', app: 'App(手艺人)', mini: '小程序(mini)' };
+const MODE_LABEL: Record<ClientMode, string> = { pc: '后台(PC)', app: 'App(手艺人)', mini: '小程序(mini)', factory: '出厂工具' };
+/** 各端账号密码登录接口（mini 无） */
+const LOGIN_API: Partial<Record<ClientMode, string>> = {
+  pc: '/uc/user/login',
+  app: '/basics/craftsman/login',
+  factory: '/dye/apiCraftsman/factory/login',
+};
 const CLIENT_TAG: Record<ClientMode, { color: string; text: string }> = {
   pc: { color: 'geekblue', text: 'PC' },
   app: { color: 'green', text: 'App' },
   mini: { color: 'orange', text: '小程序' },
+  factory: { color: 'cyan', text: '出厂' },
 };
 const isExpired = (u?: Account) => !!u?.expiresAt && u.expiresAt < Date.now();
 
 export function TopBar() {
   const {
     currentEnv, setCurrentEnv, setClientMode, users, clientMode,
-    pcUserId, appUserId, miniUserId, upsertUser, removeUser, assignSlot, setAccountRole, setAccountRoleName, importSnapshot,
+    pcUserId, appUserId, miniUserId, factoryUserId, upsertUser, removeUser, assignSlot, setAccountRole, setAccountRoleName, importSnapshot,
   } = useSession();
 
   // ---- 账号导出 / 导入（备份、换机器、分享标准测试号；含明文密码，属敏感文件）----
@@ -59,7 +66,8 @@ export function TopBar() {
   };
 
   const byId = (id: string | null) => users.find((u) => u.id === id);
-  const slotUserId = clientMode === 'pc' ? pcUserId : clientMode === 'app' ? appUserId : miniUserId;
+  const slotIds: Record<ClientMode, string | null> = { pc: pcUserId, app: appUserId, mini: miniUserId, factory: factoryUserId };
+  const slotUserId = slotIds[clientMode];
   const activeU = byId(slotUserId);
   const activeExpired = isExpired(activeU);
 
@@ -157,7 +165,7 @@ export function TopBar() {
 
   const doLogin = async () => {
     if (!account.trim() || !pwd) {
-      message.error(slot === 'pc' ? '请输入账号和密码' : '请输入手机号和密码');
+      message.error(slot === 'app' ? '请输入手机号和密码' : '请输入账号和密码');
       return;
     }
     setLogging(true);
@@ -165,7 +173,9 @@ export function TopBar() {
       const outcome =
         slot === 'pc'
           ? await loginPc(account.trim(), pwd)
-          : await loginApp(account.trim(), pwd, getSelfTestDeviceId());
+          : slot === 'factory'
+            ? await loginFactory(account.trim(), pwd)
+            : await loginApp(account.trim(), pwd, getSelfTestDeviceId());
       saveIdentity(
         outcome.token,
         {
@@ -209,11 +219,17 @@ export function TopBar() {
   // ============ 某端账号面板（Tab 内容，单端独占整行） ============
   const SlotPanel = ({ mode }: { mode: ClientMode }) => {
     const list = users.filter((u) => u.mode === mode);
-    const activeId = mode === 'pc' ? pcUserId : mode === 'app' ? appUserId : miniUserId;
+    const activeId = slotIds[mode];
     return (
       <div>
         <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
-          {mode === 'pc' ? 'PC 后台页用该端 token。' : mode === 'app' ? 'App 手艺人页用该端 token。' : '小程序顾客端用该端 token（无账号密码，仅支持粘贴 token）；未设置时门店商城页自动借用 App/PC token。'}
+          {mode === 'pc'
+            ? 'PC 后台页用该端 token。'
+            : mode === 'app'
+              ? 'App 手艺人页用该端 token。'
+              : mode === 'factory'
+                ? '出厂工具页用该端 token（只能访问 /dye/apiCraftsman/factory/**）。'
+                : '小程序顾客端用该端 token（无账号密码，仅支持粘贴 token）；未设置时门店商城页自动借用 App/PC token。'}
           单选选中即设为该端激活账号。
         </div>
         {list.length === 0 ? (
@@ -261,7 +277,7 @@ export function TopBar() {
                       )}
                       {u.account && (
                         <div style={{ color: '#999', fontSize: 12 }}>
-                          {mode === 'pc' ? '账号' : '手机号'}：{u.account}
+                          {mode === 'app' ? '手机号' : '账号'}：{u.account}
                           {u.password ? '　密码：' + u.password : ''}
                         </div>
                       )}
@@ -366,6 +382,15 @@ export function TopBar() {
               ),
               children: <SlotPanel mode="mini" />,
             },
+            {
+              key: 'factory',
+              label: (
+                <span>
+                  <Tag color="cyan" style={{ marginInlineEnd: 4 }}>出厂</Tag>工具
+                </span>
+              ),
+              children: <SlotPanel mode="factory" />,
+            },
           ]}
         />
       </Modal>
@@ -393,11 +418,11 @@ export function TopBar() {
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message={`调用 ${slot === 'pc' ? '/uc/user/login' : '/basics/craftsman/login'}，成功后自动解析 token、拉角色，并设为「${MODE_LABEL[slot]}」当前身份。`}
+                    message={`调用 ${LOGIN_API[slot]}，成功后自动解析 token${slot === 'factory' ? '' : '、拉角色'}，并设为「${MODE_LABEL[slot]}」当前身份。`}
                   />
                   <Space direction="vertical" size={10} style={{ display: 'flex' }}>
                     <Input
-                      placeholder={slot === 'pc' ? '账号' : '手机号'}
+                      placeholder={slot === 'app' ? '手机号' : '账号'}
                       value={account}
                       onChange={(e) => setAccount(e.target.value)}
                       onPressEnter={doLogin}

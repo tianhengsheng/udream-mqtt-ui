@@ -4,6 +4,9 @@
  */
 import { useSession } from '../store/useSession';
 import { navigateByLabel } from '../nav';
+import { factoryPageState } from '../pages/FactoryDevicePage';
+import { loginFactory } from '../api/auth';
+import { decodeAtToken } from '../utils/jwt';
 
 /** 归一化 antd 按钮文案（中文间会被插空格） */
 const norm = (s: string | null | undefined) => (s || '').replace(/\s+/g, '').trim();
@@ -234,6 +237,88 @@ const __t = {
   },
 
   sleep,
+
+  /** 出厂APP（设备详情 → 云端环境切换），返回紧凑状态 */
+  factory: {
+    /** 状态：设备编码、功能项显示值、各环境在线结果、弹窗与选中 */
+    state() {
+      const p = factoryPageState;
+      const btn = document.querySelector<HTMLButtonElement>('[data-testid="factory-env-confirm"]');
+      return {
+        deviceCode: p.deviceCode,
+        value: document.querySelector<HTMLElement>('[data-testid="factory-env-switch-value"]')?.innerText ?? null,
+        loading: p.loading,
+        error: p.error,
+        dialogOpen: p.dialogOpen,
+        selected: p.selected,
+        confirmEnabled: btn ? !btn.disabled : null,
+        envs: p.envs.map((e) => {
+          const o = p.online.find((x) => x.code === e.code);
+          return { code: e.code, name: e.name, addr: `${e.host}:${e.port}`, api: e.apiBaseUrl, status: o?.status, reason: o?.reason };
+        }),
+      };
+    },
+    /** 等查询结束 */
+    async idle(timeout = 15000) {
+      const t0 = Date.now();
+      await sleep(50);
+      while (factoryPageState.loading && Date.now() - t0 < timeout) await sleep(100);
+      return __t.factory.state();
+    },
+    /** 账号密码登录出厂工具并设为当前环境「出厂」身份（同顶部身份 →「出厂工具」） */
+    async login(account: string, password: string) {
+      try {
+        const { token } = await loginFactory(account, password);
+        const v = decodeAtToken(token);
+        useSession.getState().upsertUser(
+          { id: `factory:${v.uid}`, uid: v.uid, name: v.name, type: v.type, token, expiresAt: v.expiresAt, account, password },
+          'factory',
+        );
+        return { ok: true, name: v.name, type: v.type };
+      } catch (e) {
+        const b = e as { retCode?: string; retMsg?: string; message?: string };
+        return { ok: false, error: b?.retCode ? `[${b.retCode}] ${b.retMsg ?? ''}` : b?.message };
+      }
+    },
+    /** 进页面 + 模拟蓝牙连接设备编码，等在线查询结束 */
+    async device(code: string) {
+      __t.nav('设备详情');
+      await sleep(300);
+      const input = document.querySelector<HTMLInputElement>('[data-testid="factory-device-code-input"]');
+      if (!input) return { ok: false, error: 'not on 设备详情' };
+      setInputValue(input, code);
+      await sleep(50);
+      document.querySelector<HTMLElement>('[data-testid="factory-device-connect"]')?.click();
+      return __t.factory.idle();
+    },
+    /** 点「云端环境切换」打开弹窗，等查询结束 */
+    async open() {
+      const item = document.querySelector<HTMLElement>('[data-testid="factory-env-switch-item"]');
+      if (!item) return { ok: false, error: 'not on 设备详情' };
+      item.click();
+      return __t.factory.idle();
+    },
+    /** 选中某环境 */
+    async select(code: string) {
+      const el = document.querySelector<HTMLElement>(`[data-testid="factory-env-option-${code}"]`);
+      if (!el) return { ok: false, error: `option not found: ${code}` };
+      el.click();
+      await sleep(50);
+      return __t.factory.state();
+    },
+    /** 点「确认切换」，返回提示 */
+    async confirm() {
+      const n = toastLog.length;
+      document.querySelector<HTMLButtonElement>('[data-testid="factory-env-confirm"]')?.click();
+      await sleep(300);
+      return { toasts: toastLog.slice(n), state: __t.factory.state() };
+    },
+    /** 点遮罩关闭弹窗 */
+    close() {
+      document.querySelector<HTMLElement>('[data-testid="factory-env-mask"]')?.click();
+      return { ok: true };
+    },
+  },
 };
 
 declare global {

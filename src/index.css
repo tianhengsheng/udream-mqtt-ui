@@ -545,3 +545,147 @@ body {
   .sim-running-tag,
   .sim-card--ota { animation: none; }
 }
+
+/* ===== 出厂APP 设备详情（照截图复刻） ===== */
+.fx-func-item {
+  margin: 6px 12px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.fx-func-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #eef0f3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #333;
+}
+.fx-func-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1c1c1e;
+}
+.fx-func-value {
+  font-size: 14px;
+  color: #666;
+}
+.fx-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.fx-dialog {
+  width: 320px;
+  background: #eef0f3;
+  border-radius: 24px;
+  padding: 24px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.fx-dialog-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #d9dce1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: #1c1c1e;
+}
+.fx-dialog-title {
+  margin-top: 14px;
+  font-size: 19px;
+  font-weight: 700;
+  color: #1c1c1e;
+}
+.fx-dialog-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #666;
+}
+.fx-env-list {
+  margin-top: 16px;
+  width: 100%;
+  border: 1px solid #d9dce1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #eef0f3;
+}
+.fx-env-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+.fx-env-item + .fx-env-item {
+  border-top: 1px solid #d9dce1;
+}
+.fx-radio {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #333;
+  flex-shrink: 0;
+  position: relative;
+}
+.fx-radio.checked::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #333;
+}
+.fx-env-name {
+  font-size: 15px;
+  color: #1c1c1e;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fx-env-host {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #666;
+}
+.fx-online {
+  font-size: 11px;
+  color: #22a35a;
+  border: 1px solid #22a35a;
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 16px;
+}
+.fx-confirm {
+  margin-top: 18px;
+  width: 100%;
+  height: 42px;
+  border: none;
+  border-radius: 10px;
+  background: #d4d6da;
+  color: #9a9ca0;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: not-allowed;
+}
+.fx-confirm.active {
+  background: #1c1c1e;
+  color: #fff;
+  cursor: pointer;
+}

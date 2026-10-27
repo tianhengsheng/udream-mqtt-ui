@@ -18,7 +18,7 @@ MQTT/IoT 设备联调自测工具（dev-only，配合后端 monorepo udream-micr
 
 ## 项目约定
 
-- **两个进程**：前端 vite 端口 **8080**（test/newdev 网关跨域白名单只登记了 localhost:8080，勿改端口；与扫码购 UI dev 不能同开，scanbuy 有 autoPort 会让位），设备模拟器后端 sim-server 端口 **3001**；`npm run dev` 用
+- **两个进程**：前端 vite 端口默认 **8080**（vite 代理已剥 Origin/Referer，不受网关跨域白名单限制；被其他 UI 占用时 launch.json autoPort 自动换端口），设备模拟器后端 sim-server 端口 **3001**；`npm run dev` 用
   concurrently 一起起（`npm run dev:web` / `npm run dev:sim` 可单起）。sim-server 用 tsx watch 热重载。
   注意 dye-service 里的老模拟器 device-web-react 也占 3001，二者不能同时跑；必要时用
   `SIM_PORT=3002 npm run dev:sim` 换端口（同时要改 vite.config.ts 的 proxy target）。
@@ -26,6 +26,7 @@ MQTT/IoT 设备联调自测工具（dev-only，配合后端 monorepo udream-micr
   `/simws` → `ws://localhost:3001/ws`。新增模拟器接口继续用 `/simapi/xxx` 相对路径。
 - **加页面 = App.tsx `PAGES` 数组加一行**（key/client/label/Comp[/hidden]），client 决定发哪端 token；
   切页时 `setClientMode` 必须先于 `setPage`（同步切端，否则新页首个请求带上一个端的 token）。
+  `client: 'factory'` = 出厂工具 App（token 类型 DYE_FACTORY，顶栏身份「出厂 工具」页签登录/粘贴）。
   `client: 'device'` = 设备端/无端页（设备模拟器、控制面板），菜单打灰色「设备」Tag，
   切进去**不调 setClientMode**（不挂 token，保持上一个业务端）。
 - **控制面板不在本项目实现**：它是 dye-service 部署的静态页

@@ -19,6 +19,8 @@ declare module 'axios' {
     _silent?: boolean;
     _useStaffToken?: boolean;
     _useMiniToken?: boolean;
+    /** 指定 att（含空串=不带 token）：跨环境请求（如出厂工具并发查各环境在线）用目标环境自己的 token，不取当前账号 */
+    _att?: string;
   }
 }
 
@@ -89,6 +91,7 @@ http.interceptors.request.use(async (cfg) => {
   // 登录请求自身 (_skipReauth) 跳过，否则会递归。
   if (
     !cfg._skipReauth &&
+    cfg._att === undefined &&
     acc?.account &&
     acc?.password &&
     acc.expiresAt &&
@@ -108,7 +111,7 @@ http.interceptors.request.use(async (cfg) => {
   if (cfg._useMiniToken && s.miniUser()) {
     acc = s.miniUser(); // 借用小程序顾客 token（仅顾客端放行的接口，见文件头注释）
   }
-  const token = acc?.token || '';
+  const token = cfg._att !== undefined ? cfg._att : acc?.token || '';
   if (token && cfg.headers) {
     cfg.headers.set('att', token);
   }

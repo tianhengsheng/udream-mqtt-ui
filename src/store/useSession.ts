@@ -2,14 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_ENV, bucketKey, type EnvKey } from '../envs';
 
-/** 客户端类型：PC 后台页 / App 手艺人页 / mini 小程序顾客页（决定发哪个端 token）。 */
-export type ClientMode = 'pc' | 'app' | 'mini';
+/** 客户端类型：PC 后台页 / App 手艺人页 / mini 小程序顾客页 / factory 出厂工具 App（决定发哪个端 token）。 */
+export type ClientMode = 'pc' | 'app' | 'mini' | 'factory';
 
 /** clientMode → 激活槽位字段名（统一映射，避免各处 pc/app 二元硬编码） */
-export const SLOT_KEY: Record<ClientMode, 'pcUserId' | 'appUserId' | 'miniUserId'> = {
+export const SLOT_KEY: Record<ClientMode, 'pcUserId' | 'appUserId' | 'miniUserId' | 'factoryUserId'> = {
   pc: 'pcUserId',
   app: 'appUserId',
   mini: 'miniUserId',
+  factory: 'factoryUserId',
 };
 
 /**
@@ -51,8 +52,9 @@ interface Slots {
   pcUserId: string | null;
   appUserId: string | null;
   miniUserId: string | null;
+  factoryUserId: string | null;
 }
-const EMPTY_SLOTS: Slots = { pcUserId: null, appUserId: null, miniUserId: null };
+const EMPTY_SLOTS: Slots = { pcUserId: null, appUserId: null, miniUserId: null, factoryUserId: null };
 
 /** 导出/导入的账号快照（按环境分桶 + 激活槽位）。注意含明文密码，属敏感文件。 */
 export interface AccountSnapshot {
@@ -74,6 +76,7 @@ interface SessionState {
   pcUserId: string | null;
   appUserId: string | null;
   miniUserId: string | null;
+  factoryUserId: string | null;
   token: string;
 
   setCurrentEnv: (k: EnvKey) => void;
@@ -92,6 +95,7 @@ interface SessionState {
   pcUser: () => Account | undefined;
   appUser: () => Account | undefined;
   miniUser: () => Account | undefined;
+  factoryUser: () => Account | undefined;
 }
 
 /** 兼容旧快照：把按 env 分的 local/dev 桶折进 devShared（同 id 去重，槽位 local 优先）。 */
@@ -126,7 +130,14 @@ function derive(
   const slots = { ...EMPTY_SLOTS, ...(activeByEnv[bk] || {}) };
   const activeId = slots[SLOT_KEY[clientMode]];
   const token = (activeId && users.find((u) => u.id === activeId)?.token) || '';
-  return { users, pcUserId: slots.pcUserId, appUserId: slots.appUserId, miniUserId: slots.miniUserId, token };
+  return {
+    users,
+    pcUserId: slots.pcUserId,
+    appUserId: slots.appUserId,
+    miniUserId: slots.miniUserId,
+    factoryUserId: slots.factoryUserId,
+    token,
+  };
 }
 
 export const useSession = create<SessionState>()(
@@ -140,6 +151,7 @@ export const useSession = create<SessionState>()(
       pcUserId: null,
       appUserId: null,
       miniUserId: null,
+      factoryUserId: null,
       token: '',
 
       // 切环境 = 换可见账号集 + 换激活槽位（不重登、不冲突）
@@ -175,6 +187,7 @@ export const useSession = create<SessionState>()(
             pcUserId: slots.pcUserId === id ? null : slots.pcUserId,
             appUserId: slots.appUserId === id ? null : slots.appUserId,
             miniUserId: slots.miniUserId === id ? null : slots.miniUserId,
+            factoryUserId: slots.factoryUserId === id ? null : slots.factoryUserId,
           };
           const activeByEnv = { ...s.activeByEnv, [bk]: newSlots };
           return { accountsByEnv, activeByEnv, ...derive(accountsByEnv, activeByEnv, s.currentEnv, s.clientMode) };
@@ -243,6 +256,7 @@ export const useSession = create<SessionState>()(
       pcUser: () => get().users.find((u) => u.id === get().pcUserId),
       appUser: () => get().users.find((u) => u.id === get().appUserId),
       miniUser: () => get().users.find((u) => u.id === get().miniUserId),
+      factoryUser: () => get().users.find((u) => u.id === get().factoryUserId),
     }),
     {
       name: 'udream-mqtt-ui-session',
