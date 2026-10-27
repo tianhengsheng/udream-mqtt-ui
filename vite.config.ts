@@ -23,6 +23,9 @@ export default defineConfig(() => {
     configure: (proxy: any) => {
       proxy.on('proxyReq', (proxyReq: any) => {
         proxyReq.removeHeader('cookie');
+        // 剥 Origin/Referer：网关跨域白名单只登记 localhost:8080，剥掉后任意端口都可用（同 nginx 部署版）
+        proxyReq.removeHeader('origin');
+        proxyReq.removeHeader('referer');
       });
       proxy.on('proxyRes', (proxyRes: any) => {
         // 后端登录态 token 是通过 Set-Cookie(att=<token>) 下发的（见 common-at AtUtils.set）。
@@ -48,10 +51,10 @@ export default defineConfig(() => {
   ENV_PRESETS.forEach((e) => {
     // 先注册细粒度 override（更长的 key 优先匹配）
     (e.serviceOverrides || []).forEach((o) => {
-      proxy[`/env/${e.key}${o.prefix}`] = buildProxy(o.target, o.pathPrefix, e.key);
+      proxy[`/env/${e.key}${o.prefix}/`] = buildProxy(o.target, o.pathPrefix, e.key);
     });
     // 兜底：catch-all
-    proxy[`/env/${e.key}`] = buildProxy(e.target, e.pathPrefix, e.key);
+    proxy[`/env/${e.key}/`] = buildProxy(e.target, e.pathPrefix, e.key);
   });
 
   // 设备模拟器本地服务（sim-server，端口 3001）：
@@ -83,9 +86,8 @@ export default defineConfig(() => {
     plugins: [react()],
     server: {
       host: true, // 监听 0.0.0.0，允许局域网其它设备访问
-      // 用 8080：test/newdev 等环境的网关跨域白名单只登记了 localhost:8080（扫码购同款），
-      // vite 代理不剥 Origin，换端口会被网关拦。代价是与扫码购 UI dev 不能同时开
-      // （scanbuy 配了 autoPort 会自动让位）；支持 PORT 环境变量覆盖
+      // 默认 8080；代理已剥 Origin/Referer，不受网关跨域白名单限制，
+      // 8080 被其他 UI 占用时由 launch.json autoPort 换端口（PORT 环境变量覆盖）
       port: Number(process.env.PORT) || 8080,
       proxy,
     },

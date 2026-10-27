@@ -50,24 +50,24 @@ export const ENV_PRESETS = [
   },
   {
     key: 'test',
-    label: '测试',
-    target: 'https://m-test2.51yxm.com',
-    pathPrefix: '',
-    serviceOverrides: [
-      { prefix: '/franchise/apiCraftsman', target: 'https://m-test2.51yxm.com', pathPrefix: '' },
-      { prefix: '/franchise/apiUnified', target: 'https://m-test2.51yxm.com', pathPrefix: '' },
-      { prefix: '/franchise', target: 'https://m-test2.51yxm.com', pathPrefix: '/mgt' },
-    ],
-  },
-  {
-    key: 'newdev',
-    label: '测试-newdev',
+    label: '测试(test)',
     target: 'https://api-newdev.51yxm.com',
     pathPrefix: '',
     serviceOverrides: [
       { prefix: '/franchise/apiCraftsman', target: 'https://api-newdev.51yxm.com', pathPrefix: '' },
       { prefix: '/franchise/apiUnified', target: 'https://api-newdev.51yxm.com', pathPrefix: '' },
       { prefix: '/franchise', target: 'https://api-newdev.51yxm.com', pathPrefix: '/mgt' },
+    ],
+  },
+  {
+    key: 'test2',
+    label: '测试2(test2)',
+    target: 'https://api-test2.51yxm.com',
+    pathPrefix: '',
+    serviceOverrides: [
+      { prefix: '/franchise/apiCraftsman', target: 'https://api-test2.51yxm.com', pathPrefix: '' },
+      { prefix: '/franchise/apiUnified', target: 'https://api-test2.51yxm.com', pathPrefix: '' },
+      { prefix: '/franchise', target: 'https://api-test2.51yxm.com', pathPrefix: '/mgt' },
     ],
   },
 ] as const;
