@@ -139,14 +139,26 @@ export async function simulateSwitch(deviceCode: string, env: CloudEnv): Promise
   return deviceId;
 }
 
-/**
- * 按 SN 找设备模拟器里的模拟设备，返回 deviceId；找不到（或模拟器未启动）返回 null，视为真机。
- */
-export async function findSimDevice(sn: string): Promise<string | null> {
+/** 设备模拟器里的模拟设备（按 SN） */
+export interface SimDevice {
+  deviceId: string;
+  sn?: string;
+  connectionStatus: string;
+  mqttHost: string;
+  mqttPort: number;
+}
+
+/** 按 SN 取模拟设备；找不到（或模拟器未启动）返回 null，视为真机 */
+export async function getSimDevice(sn: string): Promise<SimDevice | null> {
   try {
-    const list = (await (await fetch('/simapi/devices')).json()) as { data?: { deviceId: string; sn?: string }[] };
-    return (list.data || []).find((d) => d.sn === sn)?.deviceId ?? null;
+    const list = (await (await fetch('/simapi/devices')).json()) as { data?: SimDevice[] };
+    return (list.data || []).find((d) => d.sn === sn) ?? null;
   } catch {
     return null;
   }
+}
+
+/** 按 SN 找模拟设备 deviceId（无则 null） */
+export async function findSimDevice(sn: string): Promise<string | null> {
+  return (await getSimDevice(sn))?.deviceId ?? null;
 }

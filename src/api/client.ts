@@ -44,6 +44,27 @@ const activeAccount = (): Account | undefined => {
 export const OPEN_IDENTITY_EVENT = 'mqtt-ui:open-identity';
 const MODE_NAME: Record<string, string> = { pc: 'PC 后台', app: 'App 手艺人', mini: '小程序顾客', factory: '出厂工具' };
 
+/**
+ * 未登录提示：「去登录」打开顶栏身份弹窗并定位到当前端（去重，避免多个请求同时失败刷屏）。
+ * 接口鉴权失败且当前端无账号时自动调用；页面在发请求前发现没 token 也可直接调。
+ */
+let loginModalOpen = false;
+export function promptLogin(url?: string) {
+  if (loginModalOpen) return;
+  loginModalOpen = true;
+  const mode = useSession.getState().clientMode;
+  Modal.warning({
+    title: '未登录',
+    content: `当前页面需要「${MODE_NAME[mode] ?? mode}」身份，请先登录。${url ? `\n接口：${url}` : ''}`,
+    okText: '去登录',
+    styles: { body: { whiteSpace: 'pre-wrap', fontSize: 13, wordBreak: 'break-all' } },
+    onOk: () => {
+      loginModalOpen = false;
+      window.dispatchEvent(new CustomEvent(OPEN_IDENTITY_EVENT, { detail: mode }));
+    },
+  });
+}
+
 // token 过期且无法静默续登（粘贴账号/续登失败）时的提示，弹窗去重避免刷屏。
 let tokenExpiredModalOpen = false;
 function showTokenExpired(url?: string, status?: number, backendMsg?: string) {
@@ -51,17 +72,8 @@ function showTokenExpired(url?: string, status?: number, backendMsg?: string) {
   tokenExpiredModalOpen = true;
   // 当前端没有账号：提示登录（不是 token 过期）
   if (!activeAccount()) {
-    const mode = useSession.getState().clientMode;
-    Modal.warning({
-      title: '未登录',
-      content: `当前页面需要「${MODE_NAME[mode] ?? mode}」身份，请先登录。\n接口：${url || ''}`,
-      okText: '去登录',
-      styles: { body: { whiteSpace: 'pre-wrap', fontSize: 13, wordBreak: 'break-all' } },
-      onOk: () => {
-        tokenExpiredModalOpen = false;
-        window.dispatchEvent(new CustomEvent(OPEN_IDENTITY_EVENT, { detail: mode }));
-      },
-    });
+    tokenExpiredModalOpen = false;
+    promptLogin(url);
     return;
   }
   const isPaste = !activeAccount()?.password;
