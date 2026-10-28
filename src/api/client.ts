@@ -40,11 +40,30 @@ const activeAccount = (): Account | undefined => {
   return s.users.find((u) => u.id === slotId);
 };
 
+/** 打开顶部身份弹窗的事件（TopBar 监听），detail = 端 */
+export const OPEN_IDENTITY_EVENT = 'mqtt-ui:open-identity';
+const MODE_NAME: Record<string, string> = { pc: 'PC 后台', app: 'App 手艺人', mini: '小程序顾客', factory: '出厂工具' };
+
 // token 过期且无法静默续登（粘贴账号/续登失败）时的提示，弹窗去重避免刷屏。
 let tokenExpiredModalOpen = false;
 function showTokenExpired(url?: string, status?: number, backendMsg?: string) {
   if (tokenExpiredModalOpen) return;
   tokenExpiredModalOpen = true;
+  // 当前端没有账号：提示登录（不是 token 过期）
+  if (!activeAccount()) {
+    const mode = useSession.getState().clientMode;
+    Modal.warning({
+      title: '未登录',
+      content: `当前页面需要「${MODE_NAME[mode] ?? mode}」身份，请先登录。\n接口：${url || ''}`,
+      okText: '去登录',
+      styles: { body: { whiteSpace: 'pre-wrap', fontSize: 13, wordBreak: 'break-all' } },
+      onOk: () => {
+        tokenExpiredModalOpen = false;
+        window.dispatchEvent(new CustomEvent(OPEN_IDENTITY_EVENT, { detail: mode }));
+      },
+    });
+    return;
+  }
   const isPaste = !activeAccount()?.password;
   const hint = isPaste
     ? '当前是「粘贴 token」身份，无账号密码无法自动续登。请在顶部重新粘贴新 token，或改用账号密码登录。'

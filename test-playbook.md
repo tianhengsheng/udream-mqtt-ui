@@ -44,7 +44,7 @@
 
 ### 1.2 环境与账号
 
-- 环境切换：顶栏左侧按钮 → radio（'本地'=local / '开发-newdevi'=dev / '测试' / '测试-newdev'）。
+- 环境切换：顶栏左侧按钮 → radio（'本地'=local / '开发-newdevi'=dev / '测试(test)' / '测试2(test2)'）。
   **local 与 dev 同库同 Redis、token 互通、账号共享一个桶（devShared）**；test/newdev 隔离。
 - token 取法：
   ```js
@@ -52,6 +52,7 @@
   ```
 - 身份切换：跳页自动切端（PAGES 的 client 字段）；顶栏右侧可换账号。
   `client: 'device'`（设备模拟器 / 控制面板）是设备端页，**不切端、不发 token**，clientMode 保持上一个业务端。
+- **未登录提示（2026-10-28）**：当前端没有账号时接口鉴权失败，弹「未登录 · 当前页面需要「X」身份，请先登录」，按钮「去登录」直接打开顶栏身份弹窗并定位到该端页签（`client.ts` 派发 `mqtt-ui:open-identity` 事件，TopBar 监听）；有账号但 token 失效才走原「Token 过期 / 鉴权失败」。
 - 注意：**设备模拟器页不需要登录态**（只跟本地 sim-server 说话），账号体系是给后续后端联调页用的。
 
 ### 1.3 已踩坑（操作前必读）

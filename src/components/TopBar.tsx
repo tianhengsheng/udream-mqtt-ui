@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Descriptions, Input, Modal, Popover, Radio, Space, Tabs, Tag, message } from 'antd';
 import dayjs from 'dayjs';
 import {
@@ -15,6 +15,7 @@ import { ENV_PRESETS } from '../envs';
 import { decodeAtToken, isAtTokenExpired, type DecodedAtToken } from '../utils/jwt';
 import { loginApp, loginFactory, loginPc, getSelfTestDeviceId } from '../api/auth';
 import { fetchCraftsmanRole, fetchPcRoleName, roleLabel } from '../api/role';
+import { OPEN_IDENTITY_EVENT } from '../api/client';
 
 const MODE_LABEL: Record<ClientMode, string> = { pc: '后台(PC)', app: 'App(手艺人)', mini: '小程序(mini)', factory: '出厂工具' };
 /** 各端账号密码登录接口（mini 无） */
@@ -78,6 +79,15 @@ export function TopBar() {
     setIdTab(clientMode);
     setIdOpen(true);
   };
+  // 未登录提示「去登录」→ 打开身份弹窗并定位到该端
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      setIdTab(((e as CustomEvent).detail as ClientMode) || clientMode);
+      setIdOpen(true);
+    };
+    window.addEventListener(OPEN_IDENTITY_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_IDENTITY_EVENT, onOpen);
+  }, [clientMode]);
 
   // ---- 新增账号弹窗（Tab：登录 / 粘贴） ----
   const [addOpen, setAddOpen] = useState(false);
