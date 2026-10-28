@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Input, Space, message } from 'antd';
-import { CloudSyncOutlined } from '@ant-design/icons';
+import { Alert, Button, Input, Space } from 'antd';
+import { CloudSyncOutlined, LoadingOutlined } from '@ant-design/icons';
 import { PhoneFrame } from '../app-mobile/PhoneFrame';
 import { AppSimLayout } from '../app-mobile/AppSimLayout';
 import { useSession } from '../store/useSession';
-import { fetchCloudEnvList, fetchOnlineAll, type CloudEnv, type EnvOnlineResult } from '../api/dyeFactory';
+import {
+  fetchCloudEnvList,
+  fetchOnlineAll,
+  findSimDevice,
+  NO_SIM_SWITCH,
+  simulateSwitch,
+  type CloudEnv,
+  type EnvOnlineResult,
+} from '../api/dyeFactory';
 
 /**
  * 出厂APP → 设备详情（无源码，照截图复刻；只做设备编码标题 + 「云端环境切换」）。
  * 真实 App 经蓝牙连上设备拿到设备编码、确认切换时蓝牙写入设备；浏览器无蓝牙，
- * 设备编码由右侧「模拟蓝牙已连接」输入，确认切换只提示不执行（见 README 与原页面差异）。
+ * 设备编码由右侧「模拟蓝牙已连接」输入；确认切换改由设备模拟器把同 SN 的模拟设备改连所选环境 broker，
+ * 再轮询在线状态直到落到新环境（uat / prod 不模拟）。模拟器里没有该 SN 视为真机：不支持切换（只能出厂 App 蓝牙切）。
  */
 
 /** 供测试钩子读取的页面状态（__t.factory.state） */
@@ -20,8 +29,28 @@ export const factoryPageState: {
   loading: boolean;
   dialogOpen: boolean;
   selected: string | null;
+  switching: boolean;
+  switchError: string | null;
+  /** 是否模拟设备（模拟器里有该 SN）；null=未识别 */
+  isSim: boolean | null;
   error: string | null;
-} = { deviceCode: '', envs: [], online: [], loading: false, dialogOpen: false, selected: null, error: null };
+} = {
+  deviceCode: '',
+  envs: [],
+  online: [],
+  loading: false,
+  dialogOpen: false,
+  selected: null,
+  switching: false,
+  switchError: null,
+  isSim: null,
+  error: null,
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** 模拟切换后轮询在线：间隔 / 次数（设备重连 + 首帧 status 建 SN 索引需几秒） */
+const POLL_INTERVAL = 3000;
+const POLL_TIMES = 6;
 
 const DEVICE_KEY = 'mqtt-ui-factory-device-code';
 
@@ -35,23 +64,32 @@ export function FactoryDevicePage() {
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [isSim, setIsSim] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  Object.assign(factoryPageState, { deviceCode, envs, online, loading, dialogOpen, selected, error });
+  Object.assign(factoryPageState, {
+    deviceCode, envs, online, loading, dialogOpen, selected, switching, switchError, isSim, error,
+  });
 
-  const refresh = useCallback(async () => {
-    if (!deviceCode || !factoryToken) return;
+  const refresh = useCallback(async (): Promise<EnvOnlineResult[]> => {
+    if (!deviceCode || !factoryToken) return [];
     setLoading(true);
     setError(null);
+    findSimDevice(deviceCode).then((id) => setIsSim(!!id));
     try {
       const list = await fetchCloudEnvList();
       setEnvs(list);
-      setOnline(await fetchOnlineAll(list, deviceCode));
+      const res = await fetchOnlineAll(list, deviceCode);
+      setOnline(res);
+      return res;
     } catch (e) {
       const b = e as { retCode?: string; retMsg?: string; message?: string };
       setError(b?.retCode ? `[${b.retCode}] ${b.retMsg ?? ''}` : b?.message || '查询失败');
       setEnvs([]);
       setOnline([]);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -62,29 +100,59 @@ export function FactoryDevicePage() {
   }, [refresh]);
 
   const onlineEnv = envs.find((e) => online.find((o) => o.code === e.code)?.status === 'online');
-  const statusText = !deviceCode ? '未知' : loading ? '查询中' : onlineEnv ? onlineEnv.name : '未知';
+  // 已有结果时刷新不闪「查询中」
+  const statusText = !deviceCode ? '未知' : onlineEnv ? onlineEnv.name : loading && online.length === 0 ? '查询中' : '未知';
+
+  /** 连接设备：编码不变时也重新查询（否则停留在上次结果） */
+  const connect = () => {
+    localStorage.setItem(DEVICE_KEY, codeDraft);
+    if (codeDraft === deviceCode) refresh();
+    else setDeviceCode(codeDraft);
+  };
 
   const openDialog = () => {
     setSelected(null);
+    setSwitchError(null);
     setDialogOpen(true);
     refresh();
   };
 
-  const confirm = () => {
-    if (!selected) return;
-    message.info('需通过蓝牙写入设备，自测 UI 不执行');
-    setDialogOpen(false);
+  const confirm = async () => {
+    const env = envs.find((e) => e.code === selected);
+    if (!env || switching || isSim === false) return;
+    if (NO_SIM_SWITCH.has(env.code)) {
+      setSwitchError(`自测 UI 不模拟切到${env.name}环境`);
+      return;
+    }
+    setSwitchError(null);
+    setSwitching(true);
+    try {
+      await simulateSwitch(deviceCode, env);
+      for (let i = 0; i < POLL_TIMES; i++) {
+        await sleep(POLL_INTERVAL);
+        const res = await refresh();
+        if (res.find((o) => o.code === env.code)?.status === 'online') {
+          setDialogOpen(false);
+          return;
+        }
+      }
+      setSwitchError(`设备未在${env.name}上线，请检查模拟器日志`);
+    } catch (e) {
+      setSwitchError((e as Error).message);
+    } finally {
+      setSwitching(false);
+    }
   };
 
   const dialog = dialogOpen && (
-    <div className="fx-mask" data-testid="factory-env-mask" onClick={() => setDialogOpen(false)}>
+    <div className="fx-mask" data-testid="factory-env-mask" onClick={() => !switching && setDialogOpen(false)}>
       <div className="fx-dialog" data-testid="factory-env-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="fx-dialog-icon">
           <CloudSyncOutlined />
         </div>
         <div className="fx-dialog-title">云端环境切换</div>
         <div className="fx-dialog-sub">选择设备要连接的云端环境</div>
-        <div className="fx-env-list">
+        <div className={`fx-env-list${switching ? ' switching' : ''}`}>
           {envs.map((e) => {
             const isOnline = online.find((o) => o.code === e.code)?.status === 'online';
             return (
@@ -92,7 +160,11 @@ export function FactoryDevicePage() {
                 key={e.code}
                 className="fx-env-item"
                 data-testid={`factory-env-option-${e.code}`}
-                onClick={() => setSelected(e.code)}
+                onClick={() => {
+                  if (switching) return;
+                  setSelected(e.code);
+                  setSwitchError(null);
+                }}
               >
                 <span className={`fx-radio${selected === e.code ? ' checked' : ''}`} />
                 <div className="fx-env-text">
@@ -112,13 +184,30 @@ export function FactoryDevicePage() {
             );
           })}
         </div>
+        {isSim === false && (
+          <div className="fx-switch-note" data-testid="factory-env-real-device">
+            真机不支持在自测 UI 切换，请用出厂 App 蓝牙切换
+          </div>
+        )}
+        {switchError && (
+          <div className="fx-switch-error" data-testid="factory-env-error">
+            {switchError}
+          </div>
+        )}
         <button
-          className={`fx-confirm${selected ? ' active' : ''}`}
+          className={`fx-confirm${selected && isSim !== false ? ' active' : ''}`}
           data-testid="factory-env-confirm"
-          disabled={!selected}
+          disabled={!selected || switching || isSim === false}
           onClick={confirm}
         >
-          确认切换
+          {switching ? (
+            <>
+              <LoadingOutlined style={{ marginRight: 8 }} />
+              切换中…
+            </>
+          ) : (
+            '确认切换'
+          )}
         </button>
       </div>
     </div>
@@ -134,18 +223,12 @@ export function FactoryDevicePage() {
           placeholder="设备编码，如 0400015"
           value={codeDraft}
           onChange={(e) => setCodeDraft(e.target.value.trim())}
-          onPressEnter={() => {
-            setDeviceCode(codeDraft);
-            localStorage.setItem(DEVICE_KEY, codeDraft);
-          }}
+          onPressEnter={connect}
         />
         <Button
           type="primary"
           data-testid="factory-device-connect"
-          onClick={() => {
-            setDeviceCode(codeDraft);
-            localStorage.setItem(DEVICE_KEY, codeDraft);
-          }}
+          onClick={connect}
         >
           连接
         </Button>

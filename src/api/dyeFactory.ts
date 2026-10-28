@@ -117,3 +117,36 @@ export async function fetchOnlineAll(envs: CloudEnv[], deviceCode: string): Prom
     }),
   );
 }
+
+/** 不模拟切换的环境（Claude / 自测 UI 不连验收、生产） */
+export const NO_SIM_SWITCH = new Set(['uat', 'prod']);
+
+/**
+ * 模拟「确认切换」：真实 App 经蓝牙把新环境地址写进设备、设备重连；
+ * 这里改由设备模拟器（sim-server）把 SN 匹配的模拟设备改连所选环境的 broker（证书与 SN 不变）。
+ * 返回被切换的模拟设备 deviceId。
+ */
+export async function simulateSwitch(deviceCode: string, env: CloudEnv): Promise<string> {
+  const deviceId = await findSimDevice(deviceCode);
+  if (!deviceId) throw new Error('真机不支持在自测 UI 切换，请用出厂 App 蓝牙切换');
+  const res = await fetch(`/simapi/devices/${encodeURIComponent(deviceId)}/switch-broker`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mqttHost: env.host, mqttPort: env.port }),
+  });
+  const body = (await res.json()) as { success: boolean; message?: string };
+  if (!body.success) throw new Error(body.message || '模拟切换失败');
+  return deviceId;
+}
+
+/**
+ * 按 SN 找设备模拟器里的模拟设备，返回 deviceId；找不到（或模拟器未启动）返回 null，视为真机。
+ */
+export async function findSimDevice(sn: string): Promise<string | null> {
+  try {
+    const list = (await (await fetch('/simapi/devices')).json()) as { data?: { deviceId: string; sn?: string }[] };
+    return (list.data || []).find((d) => d.sn === sn)?.deviceId ?? null;
+  } catch {
+    return null;
+  }
+}

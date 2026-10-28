@@ -689,3 +689,28 @@ body {
   color: #fff;
   cursor: pointer;
 }
+.fx-switch-error {
+  margin-top: 10px;
+  width: 100%;
+  font-size: 12px;
+  color: #d4380d;
+  text-align: center;
+}
+.fx-switch-note {
+  margin-top: 10px;
+  width: 100%;
+  font-size: 12px;
+  color: #8c8c8c;
+  text-align: center;
+}
+/* 切换中：确认按钮保持深色带转圈，列表变淡不可点 */
+.fx-confirm.active:disabled {
+  background: #1c1c1e;
+  color: #fff;
+  opacity: 0.85;
+  cursor: progress;
+}
+.fx-env-list.switching {
+  opacity: 0.55;
+  pointer-events: none;
+}

@@ -80,6 +80,22 @@ app.delete('/api/devices/:deviceId', (req, res) => {
   res.json({ success: true })
 })
 
+/** 切换云端环境（改连 broker，证书与 SN 不变；出厂 App「云端环境切换」的模拟） */
+app.post('/api/devices/:deviceId/switch-broker', async (req, res) => {
+  const { mqttHost, mqttPort } = req.body as { mqttHost?: string; mqttPort?: number }
+  if (!mqttHost || !mqttPort) {
+    res.status(400).json({ success: false, message: '缺少 mqttHost / mqttPort' })
+    return
+  }
+  try {
+    deviceManager.switchBroker(req.params.deviceId, mqttHost, Number(mqttPort))
+    res.json({ success: true, message: '设备重连中' })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    res.status(400).json({ success: false, message: msg })
+  }
+})
+
 /** 触发指令 */
 app.post('/api/devices/:deviceId/action', (req, res) => {
   const { action, bizData } = req.body as { action: string; bizData?: Record<string, unknown> }

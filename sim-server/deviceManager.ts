@@ -196,6 +196,29 @@ class DeviceManager {
     this.broadcast({ type: 'device_removed', deviceId })
   }
 
+  // ---- 切换云端环境：原地改连新 broker（证书/SN/状态/日志不变），模拟出厂 App 蓝牙下发新环境地址 ----
+  switchBroker(deviceId: string, mqttHost: string, mqttPort: number) {
+    const managed = this.devices.get(deviceId)
+    if (!managed) throw new Error(`设备 ${deviceId} 不存在`)
+    const old = managed.client
+    this.clearStatusTimer(managed)
+    deviceHandlers[managed.opts.deviceType]?.onDisconnected?.(managed)
+    managed.client = null
+    // 先摘监听再断开：旧连接的 close 不能把状态改成「已断开」
+    old?.removeAllListeners()
+    old?.end(true)
+    managed.opts = { ...managed.opts, mqttHost, mqttPort }
+    managed.connectionStatus = 'connecting'
+    this.broadcastDeviceUpdate(deviceId, { connectionStatus: 'connecting', mqttHost, mqttPort })
+    this.appendLog(deviceId, {
+      timestamp: now(),
+      direction: 'info',
+      topic: '',
+      message: `切换环境：改连 mqtts://${mqttHost}:${mqttPort}...`
+    })
+    this.connectMqtt(managed)
+  }
+
   // ---- MQTT 连接 ----
   private connectMqtt(managed: ManagedDevice) {
     const { deviceId, deviceType, mqttHost, mqttPort, certs } = managed.opts

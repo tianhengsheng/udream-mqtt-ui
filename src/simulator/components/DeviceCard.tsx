@@ -20,6 +20,8 @@ import { useDeviceStore } from '../store/useDeviceStore'
 import { getDeviceTypeConfig } from '../config/deviceTypes'
 import { ActionFormModal } from './ActionFormModal'
 import { OtaProgress, isOtaTerminal } from './OtaProgress'
+import { BrokerSwitch } from './BrokerSwitch'
+import { brokerName } from '../config/brokers'
 import type { DeviceInstance } from '../types'
 import type { ActionConfig } from '../config/deviceTypes'
 import {
@@ -346,10 +348,11 @@ export const DeviceCard: React.FC<Props> = ({ device }) => {
               </Tooltip>
             )}
           </div>
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={(e) => e.stopPropagation()}>
             <Text style={{ fontSize: 11, color: TEXT_MUTED }}>
-              {STATUS_LABEL[device.connectionStatus]} · {device.mqttHost}:{device.mqttPort}
+              {STATUS_LABEL[device.connectionStatus]} · {brokerName(device.mqttHost, device.mqttPort) ? `${brokerName(device.mqttHost, device.mqttPort)} · ` : ''}{device.mqttHost}:{device.mqttPort}
             </Text>
+            <BrokerSwitch device={device} />
           </div>
           {/* OTA 升级进程（收到 ota 指令到终态停留结束之间可见） */}
           {ota && (

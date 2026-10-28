@@ -95,6 +95,13 @@
 - 设备卡片按**设备类型配色**（深色版）：四代染色仪=紫 `#b083f0`、洗头床=青 `#6cd8d0`
   （顶部色条/类型标签/状态区底色/卡片描边/指令按钮描边同色，离线退回中性灰）；
   查询类按钮保持中性，与下发指令的按钮区分。状态值为「执行中」时标 ACCENT 加粗 + 脉冲点。
+- **切换环境（2026-10-28）**：卡片状态行「已连接 · 联调 · device-dev.51yxm.com:8085　⇆ 切换环境」，点「切换环境」（testid `sim.broker-switch-{deviceId}`）
+  → 弹层输入框可选预设（联调/测试/测试2/验收）或直接填 `域名:端口` → 「切换并重连」（`sim.broker-submit-{deviceId}`）。
+  sim-server `POST /api/devices/{deviceId}/switch-broker` **原地**改连新 broker（同一证书 / SN，卡片、日志、状态保留，模拟出厂 App 蓝牙下发新环境）；
+  **不弹提示**：成功即关弹层，卡片状态行「连接中 · 测试2 · …」→「已连接 · 测试2 · …」；错误显示在弹层内（testid `sim.broker-error-{deviceId}`）；
+  预设在 `src/simulator/config/brokers.ts`（与后端 config_const 环境列表同口径），生产 `dyelot.udream.com` 拒绝切换，格式不对提示「域名:端口」，与当前相同直接关弹层。
+  钩子：`await __t.factory.simSwitch('00000', 'device-test2.51yxm.com:8085')`。
+  ⚠️ sim-server 由 LaunchAgent 常驻、不热更新：改 sim-server 代码后 `launchctl kickstart -k gui/$(id -u)/com.udream.mqtt-sim`，重启会清空设备需重新添加。
 - 设备卡片：**SN 是独立徽章**（等宽字体，点击复制），它就是 `dye_device_cream.device_code`；
   设备在跑时（`deviceStatus=1` 或任一 `*State` 非 IDLE）徽章加流光+脉冲、卡片透蓝光、右上角标签变「运行中」。
   断言运行态用 class：`document.querySelector('.sim-sn').className` 含 `sim-sn--running`。
@@ -521,7 +528,8 @@ data-testid 一览：`appDye.refresh` / `appDye.device-code` / `appDye.store-id`
 
 **与原页面的差异**（浏览器无蓝牙）：
 - 设备编码由右侧「模拟蓝牙已连接」输入框给出（真实 App 蓝牙读取），记在 `localStorage['mqtt-ui-factory-device-code']`。
-- 「确认切换」只 toast「需通过蓝牙写入设备，自测 UI 不执行」后关弹窗（真实 App 蓝牙写入设备）。
+- 「确认切换」**由设备模拟器模拟**（真实 App 蓝牙把新环境地址写进设备、设备重连）：找 SN = 设备编码的模拟设备，调 sim-server `switch-broker` 原地改连所选环境 broker；按钮显示「切换中…」，每 3s 查一次在线、最多 6 次，落到新环境即关弹窗、功能项变新环境名。**全程不弹提示**；验收 / 生产不模拟、超时未上线等错误显示在弹窗内（`factory-env-error`）。
+- **真机校验**：连接设备 / 打开弹窗时按 SN 查设备模拟器，没有该 SN（或模拟器未启动）即视为**真机**，弹窗底部提示「真机不支持在自测 UI 切换，请用出厂 App 蓝牙切换」、确认按钮置灰（`state().isSim`）。
 - 环境行上的「在线」标记为本需求新增展示（截图无），只标在线的那一个环境。
 
 **在线判断（方案 A）**：取当前环境 `cloudEnvList` → 对每个环境用**该环境自己的出厂 token** 并发调 `deviceOnlineStatus`，`online=true` 的环境名显示在功能项右侧（都不在线显示「未知」）。
@@ -534,18 +542,19 @@ data-testid 一览：`appDye.refresh` / `appDye.device-code` / `appDye.store-id`
 | 原子操作 | 写法 | 断言点 |
 |---|---|---|
 | 登录出厂身份 | `await __t.factory.login(账号, 密码)`（或顶栏人工登录） | `{ok:true, name:'APP智染出厂工具', type:2048}` |
-| 进页 + 连设备 | `await __t.factory.device('00000')` | 返回 state：`value` = 在线环境名；`envs[].status` 为 `online/offline/unavailable`，不可用带 `reason` |
+| 进页 + 连设备 | `await __t.factory.device('00000')`（编码不变也会重新查询） | 返回 state：`value` = 在线环境名；`envs[].status` 为 `online/offline/unavailable`，不可用带 `reason` |
 | 打开弹窗 | `await __t.factory.open()` | `dialogOpen:true`、`confirmEnabled:false`；DOM `[data-testid^="factory-env-online-"]` 只有在线那一个 |
-| 未选直接确认 | `await __t.factory.confirm()` | `toasts:[]`，弹窗仍开（按钮 disabled） |
+| 未选直接确认 | `await __t.factory.confirm()` | 按钮 disabled，无动作，`dialogOpen:true` |
 | 选环境 | `await __t.factory.select('test')` | `selected:'test'`、`confirmEnabled:true` |
-| 确认切换 | `await __t.factory.confirm()` | `toasts:['需通过蓝牙写入设备，自测 UI 不执行']`，`dialogOpen:false` |
+| 确认切换 | `await __t.factory.confirm()`（等切换+轮询结束，默认最长 30s，返回 state） | 成功：`dialogOpen:false`、`value` = 新环境名、`switchError:null`；失败：弹窗不关、`switchError` 有值 |
+| 模拟器切环境 | `await __t.factory.simSwitch('00000', 'device-test2.51yxm.com:8085')` | `{ok:true, error:null, line:'已连接 · 测试2 · device-test2.51yxm.com:8085'}`；之后 `__t.factory.device('00000')` 的 `value` 变成新环境名 |
 | 关弹窗 | `__t.factory.close()` | 点遮罩关闭 |
 | 读状态 | `__t.factory.state()` | 见上 |
 
 testid：`factory-device-code-input` / `factory-device-connect` / `factory-env-switch-item` / `factory-env-switch-value` /
 `factory-env-mask` / `factory-env-dialog` / `factory-env-option-{code}` / `factory-env-online-{code}` / `factory-env-confirm`。
 
-**用例（2026-10-27 本地 + dev 均已跑通）**
+**用例（2026-10-27 本地 + dev、2026-10-28 test2 已跑通）**
 
 | # | 用例 | 前置 | 预期 |
 |---|---|---|---|
@@ -553,9 +562,13 @@ testid：`factory-device-code-input` / `factory-device-connect` / `factory-env-s
 | F2 | 离线设备 | `0400015`（dev 长期未上报） | `value:'未知'`，dev `offline` |
 | F3 | 未部署环境 | test / test2 未上本需求代码 | 对应环境 `unavailable`，`reason:'[50120] request failure'`（隐式登录被网关拦） |
 | F4 | 未接入环境 | — | uat / prod `unavailable`，`reason:'未接入'` |
-| F5 | 弹窗交互 | F1 后 | open → 只有 dev 带「在线」；未选确认无提示；选 test 后确认 → toast 如上 |
+| F5 | 弹窗交互 | F1 后 | open → 只有 dev 带「在线」；未选确认无提示（按钮 disabled）；选中后按钮可点 |
 | F6 | 切 UI 环境 | 顶栏切「开发-newdevi」 | 请求走 `/env/dev/...`，结果同 F1 |
 | F7 | 未设出厂身份 | 删掉出厂账号 | 右侧提示「未设置出厂工具身份」，不发请求 |
+| F8 | 出厂页模拟切换（2026-10-28 dev↔test2 实测） | 模拟器有 `dm04-test-00000`（sn `00000`）连 dev | 选 test2 确认 → 按钮「切换中…」→ 上线后弹窗关闭、`value:'测试2'`；再选联调同理。无任何提示弹出 |
+| F9 | 切生产 / 验收 | — | 弹窗内显示「自测 UI 不模拟切到生产环境」，弹窗不关、模拟器不动 |
+| F10 | 真机不支持切换 | 设备编码 `0400015`（模拟器里无此 SN，视为真机） | 弹窗底部灰字「真机不支持在自测 UI 切换，请用出厂 App 蓝牙切换」（`factory-env-real-device`），选中环境后「确认切换」仍置灰；`state().isSim:false`、`confirmEnabled:false` |
+| F11 | 模拟器侧切换（真实场景：设备收到新地址自行重连） | 设备模拟器卡片「切换环境」填 `device-test2.51yxm.com:8085` | 卡片不消失，状态行「连接中 · 测试2」→「已连接 · 测试2」；出厂页 `value:'测试2'`、dev 同步离线；填生产 / 缺端口时弹层内报错；全程无提示 |
 
 **接口级用例（curl，见后端 `docs/mqtt/env-switch/README.md` ⑦）**：错误密码 `000001`、无 token `50120`、出厂 token 调非出厂接口 `50140`。
 
@@ -567,6 +580,8 @@ SELECT `value` FROM udream_basics.config_const WHERE `key` = 'dye_factory_cloud_
 
 ### 已踩坑（本页）
 
+- 2026-10-28：原先编码不变时点「连接」不重查，页面一直停在旧结果（曾误判 dev 网关 503）；已改为编码不变也重查。
+- dev 网关偶发 `503 Unable to find instance for dye-service`（dev dye pod 重启/发版中），该环境标 `unavailable HTTP 503`，稍后重查即可。
 - 后端在线状态读 Redis 状态缓存（`$SYS` 上下线事件实时写）；设备长期不上报缓存会过期，`lastReportTime` 变 `null`，属正常。
 - 本地 / dev 共 Redis：UI 在「本地」时 `dev` 行查的是本地 dye，与 dev pod 结果一致。
 - 环境列表 `config_const` 未插时接口返回空列表（后端 warn「云端环境列表未配置」），页面显示「未知」。

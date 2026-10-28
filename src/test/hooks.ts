@@ -251,6 +251,9 @@ const __t = {
         error: p.error,
         dialogOpen: p.dialogOpen,
         selected: p.selected,
+        switching: p.switching,
+        switchError: p.switchError,
+        isSim: p.isSim,
         confirmEnabled: btn ? !btn.disabled : null,
         envs: p.envs.map((e) => {
           const o = p.online.find((x) => x.code === e.code);
@@ -306,12 +309,33 @@ const __t = {
       await sleep(50);
       return __t.factory.state();
     },
-    /** 点「确认切换」，返回提示 */
-    async confirm() {
-      const n = toastLog.length;
+    /** 点「确认切换」：模拟器改连所选环境 broker 并轮询在线，等切换流程结束（最长 timeout）。不弹提示：成功=弹窗关闭+value 变新环境，失败看 switchError */
+    async confirm(timeout = 30000) {
       document.querySelector<HTMLButtonElement>('[data-testid="factory-env-confirm"]')?.click();
+      const t0 = Date.now();
       await sleep(300);
-      return { toasts: toastLog.slice(n), state: __t.factory.state() };
+      while (factoryPageState.switching && Date.now() - t0 < timeout) await sleep(300);
+      return __t.factory.state();
+    },
+    /** 设备模拟器卡片「切换环境」：按 SN 找模拟设备，填 host:port 点「切换并重连」（走 DOM，会跳到设备模拟器页） */
+    async simSwitch(sn: string, hostPort: string) {
+      const list = (await (await fetch('/simapi/devices')).json()) as { data?: { deviceId: string; sn?: string }[] };
+      const dev = (list.data || []).find((d) => d.sn === sn);
+      if (!dev) return { ok: false, error: `模拟器中没有 SN=${sn} 的设备` };
+      __t.nav('设备模拟器');
+      await sleep(800);
+      document.querySelector<HTMLElement>(`[data-testid="sim.broker-switch-${dev.deviceId}"]`)?.click();
+      await sleep(300);
+      const input = document.querySelector<HTMLInputElement>('.ant-popover input');
+      if (!input) return { ok: false, error: '切换环境弹层未打开' };
+      setInputValue(input, hostPort);
+      await sleep(100);
+      document.querySelector<HTMLElement>(`[data-testid="sim.broker-submit-${dev.deviceId}"]`)?.click();
+      await sleep(1500);
+      const error = document.querySelector<HTMLElement>(`[data-testid="sim.broker-error-${dev.deviceId}"]`)?.innerText ?? null;
+      const card = [...document.querySelectorAll<HTMLElement>('.ant-card')].find((c) => c.innerText.includes(dev.deviceId));
+      const line = card?.innerText.split('\n').find((l) => /:\d+$/.test(l.trim())) ?? null;
+      return { ok: !error, deviceId: dev.deviceId, error, line };
     },
     /** 点遮罩关闭弹窗 */
     close() {
